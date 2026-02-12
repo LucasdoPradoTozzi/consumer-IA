@@ -1,16 +1,27 @@
-# Laravel Docker Starter
+# Laravel AI Worker
 
-A Laravel 12 (PHP 8.4) starter template with Docker, featuring PostgreSQL, Redis, RabbitMQ, and Nginx. This is a base setup ready for you to start building your application.
+A Laravel 12 (PHP 8.4) AI-powered worker application with Docker, featuring RabbitMQ message consumption, Ollama LLM integration, and automated job processing pipeline.
 
 ## Tech Stack
 
-- **Laravel** - PHP Framework
+- **Laravel 12** - PHP Framework (Worker Mode)
 - **Docker** - Containerization
 - **PostgreSQL** - Database
 - **Redis** - Cache & Session Storage
 - **RabbitMQ** - Message Queue
+- **Ollama** - Local LLM (Qwen 2.5 7B)
 - **Nginx** - Web Server
-- **PHP-FPM** - PHP Process Manager
+- **PHP-FPM 8.4** - PHP Process Manager
+
+## Features
+
+- 🤖 AI-powered job processing with Ollama LLM
+- 📨 RabbitMQ message consumption with manual ACK
+- 📄 PDF generation for cover letters and resumes
+- ✉️ Email service integration
+- 🔍 Multi-stage job classification and scoring
+- 📊 Comprehensive logging at each pipeline step
+- 🐳 Fully Dockerized with service orchestration
 
 ## Prerequisites
 
@@ -50,45 +61,124 @@ docker exec laravelapp-php php artisan key:generate
 docker exec laravelapp-php php artisan migrate
 ```
 
-7. Create storage symlink
+7. Pull Ollama model (required for AI processing)
 ```bash
-docker exec laravelapp-php php artisan storage:link
+# Using profile (recommended)
+./pull-ollama-model.sh low     # For development (4GB RAM)
+./pull-ollama-model.sh medium  # Balanced (8GB RAM)
+./pull-ollama-model.sh high    # Production (20GB RAM)
+
+# Or manually with specific model
+./pull-ollama-model.sh qwen2.5:7b-q4
+```
+
+8. Check all services
+```bash
+docker exec laravelapp-php php artisan worker:check
 ```
 
 ## Access the Application
 
 - **Application**: http://localhost:8000
-- **RabbitMQ Management**: http://localhost:15672 (guest/guest)
+- **RabbitMQ Management**: http://localhost:15672 (admin/secret)
+- **Ollama API**: http://localhost:11434
+
+## Worker Commands
+
+```bash
+# Check service availability
+docker exec laravelapp-php php artisan worker:check
+
+# Start RabbitMQ consumer
+docker exec laravelapp-php php artisan worker:consume
+
+# Test Ollama directly
+docker exec -it laravelapp-ollama ollama run qwen2.5:7b-q4
+
+# Pull different profile models
+./pull-ollama-model.sh low     # qwen2.5:7b-q4
+./pull-ollama-model.sh medium  # qwen2.5:14b
+./pull-ollama-model.sh high    # qwen2.5vl:32b
+```
 
 ## Available Commands
 
 ```bash
-# Start containers
+# Start all containers
 docker-compose up -d
 
 # Stop containers
 docker-compose down
 
-# View logs
+# View logs (all services)
 docker-compose logs -f
+
+# View logs (specific service)
+docker-compose logs -f app
+docker-compose logs -f ollama
+docker-compose logs -f rabbitmq
 
 # Access PHP container
 docker exec -it laravelapp-php sh
 
 # Run artisan commands
 docker exec laravelapp-php php artisan <command>
-
-# Run composer commands
-docker exec laravelapp-php composer <command>
 ```
 
 ## Configuration
 
-Make sure to update the following in your `.env` file:
+The application uses internal Docker networking. Services communicate via container names:
 
-- `DB_HOST=postgres` (use service name, not 127.0.0.1)
+- `RABBITMQ_HOST=rabbitmq` (not localhost)
+- `OLLAMA_URL=http://ollama:11434` (not localhost)
+- `DB_HOST=postgres`
 - `REDIS_HOST=redis`
-- `RABBITMQ_HOST=rabbitmq`
+
+Update `.env` with your specific configurations:
+
+```env
+# RabbitMQ
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=admin
+RABBITMQ_PASSWORD=secret
+RABBITMQ_QUEUE=jobs
+
+# Ollama (AI Model Configuration)
+OLLAMA_URL=http://ollama:11434
+OLLAMA_PROFILE=low  # Options: low, medium, high
+OLLAMA_TIMEOUT=600
+
+# Ollama Profiles:
+# - low:    qwen2.5:7b-q4     (~4GB RAM)  - Development
+# - medium: qwen2.5:14b       (~8GB RAM)  - Balanced
+# - high:   qwen2.5vl:32b     (~20GB RAM) - Production with vision
+
+# Email (for job recommendations)
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password
+
+# Processing
+PROCESSING_SCORE_THRESHOLD=70
+```
+
+## GPU Support (Optional)
+
+To enable GPU acceleration for Ollama, uncomment the deploy section in `docker-compose.yml`:
+
+```yaml
+ollama:
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+```
+
+Requires NVIDIA Docker runtime installed.
 
 ## License
 
