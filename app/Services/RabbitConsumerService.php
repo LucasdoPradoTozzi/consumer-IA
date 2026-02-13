@@ -27,11 +27,11 @@ class RabbitConsumerService
     public function consume(): void
     {
         $this->connect();
-        $this->setupQueue();
-        $this->setupConsumer();
+        $this->setupQueues();
+        $this->setupConsumers();
 
         Log::info('RabbitMQ consumer started', [
-            'queue' => config('rabbitmq.queue'),
+            'queues' => array_values(config('rabbitmq.queues')),
             'prefetch' => config('rabbitmq.prefetch_count'),
         ]);
 
@@ -89,22 +89,26 @@ class RabbitConsumerService
     }
 
     /**
-     * Setup queue and prefetch
+     * Setup all queues and prefetch
      *
      * @return void
      */
-    private function setupQueue(): void
+    private function setupQueues(): void
     {
-        $queue = config('rabbitmq.queue');
+        $queues = config('rabbitmq.queues');
 
-        // Declare queue (passive=false, durable=true, exclusive=false, auto_delete=false)
-        $this->channel->queue_declare(
-            queue: $queue,
-            passive: false,
-            durable: true,
-            exclusive: false,
-            auto_delete: false
-        );
+        foreach ($queues as $queueName) {
+            // Declare queue (passive=false, durable=true, exclusive=false, auto_delete=false)
+            $this->channel->queue_declare(
+                queue: $queueName,
+                passive: false,
+                durable: true,
+                exclusive: false,
+                auto_delete: false
+            );
+
+            Log::info('Queue declared', ['queue' => $queueName]);
+        }
 
         // Set prefetch count to 1 (no parallelism)
         $this->channel->basic_qos(
@@ -113,76 +117,79 @@ class RabbitConsumerService
             a_global: false
         );
 
-        Log::info('Queue configured', [
-            'queue' => $queue,
+        Log::info('Queues configured', [
+            'queues' => array_values($queues),
             'prefetch_count' => config('rabbitmq.prefetch_count'),
         ]);
     }
 
     /**
-     * Setup consumer callback
+     * Setup consumer callbacks for all queues
      *
      * @return void
      */
-    private function setupConsumer(): void
+    private function setupConsumers(): void
     {
-        $queue = config('rabbitmq.queue');
-        $consumerTag = config('rabbitmq.consumer_tag');
+        $queues = config('rabbitmq.queues');
+        $consumerTagBase = config('rabbitmq.consumer_tag');
 
-        $callback = function (AMQPMessage $message) {
-            $this->handleMessage($message);
-        };
+        foreach ($queues as $queueKey => $queueName) {
+            $consumerTag = "{$consumerTagBase}_{$queueKey}";
 
-        $this->channel->basic_consume(
-            queue: $queue,
-            consumer_tag: $consumerTag,
-            no_local: false,
-            no_ack: false, // Manual ACK
-            exclusive: false,
-            nowait: false,
-            callback: $callback
-        );
+            $callback = function (AMQPMessage $message) use ($queueName) {
+                $this->handleMessage($message, $queueName);
+            };
 
-        Log::info('Consumer registered', [
-            'consumer_tag' => $consumerTag,
-            'manual_ack' => true,
-        ]);
+            $this->channel->basic_consume(
+                queue: $queueName,
+                consumer_tag: $consumerTag,
+                no_local: false,
+                no_ack: false, // Manual ACK
+                exclusive: false,
+                nowait: false,
+                callback: $callback
+            );
+
+            Log::info('Consumer registered', [
+                'queue' => $queueName,
+                'consumer_tag' => $consumerTag,
+                'manual_ack' => true,
+            ]);
+        }
     }
 
     /**
      * Handle incoming message
      *
      * @param AMQPMessage $message
+     * @param string $queueName
      * @return void
      */
-    private function handleMessage(AMQPMessage $message): void
+    private function handleMessage(AMQPMessage $message, string $queueName): void
     {
         $body = $message->getBody();
         $deliveryTag = $message->getDeliveryTag();
 
         Log::info('Message received', [
+            'queue' => $queueName,
             'delivery_tag' => $deliveryTag,
             'body_size' => strlen($body),
         ]);
 
         try {
-            // Parse payload
-            $payload = JobPayload::fromJson($body);
-
-            Log::info('Payload parsed', [
-                'job_id' => $payload->jobId,
-                'type' => $payload->type,
-                'delivery_tag' => $deliveryTag,
-            ]);
-
-            // Process job
-            $this->jobProcessor->process($payload);
+            // Process based on queue
+            match ($queueName) {
+                config('rabbitmq.queues.process-jobs') => $this->processJobApplication($body),
+                config('rabbitmq.queues.mark-job-done') => $this->markJobDone($body),
+                config('rabbitmq.queues.reproccess-job') => $this->reprocessJob($body),
+                default => throw new \InvalidArgumentException("Unknown queue: {$queueName}"),
+            };
 
             // ACK only if successful
             $message->ack();
 
             Log::info('Message acknowledged', [
-                'job_id' => $payload->jobId,
+                'queue' => $queueName,
                 'delivery_tag' => $deliveryTag,
             ]);
         } catch (\Exception $e) {
@@ -190,6 +197,7 @@ class RabbitConsumerService
             Log::error('Failed to process message', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'queue' => $queueName,
                 'delivery_tag' => $deliveryTag,
                 'body' => $body,
             ]);
@@ -198,6 +206,76 @@ class RabbitConsumerService
             // Re-throw exception to stop consumer if needed
             throw $e;
         }
+    }
+
+    /**
+     * Process job application (full 7-stage pipeline)
+     *
+     * @param string $body
+     * @return void
+     */
+    private function processJobApplication(string $body): void
+    {
+        $payload = JobPayload::fromJson($body);
+
+        Log::info('[process-jobs] Processing job application', [
+            'job_id' => $payload->jobId,
+            'type' => $payload->type,
+        ]);
+
+        $this->jobProcessor->process($payload);
+    }
+
+    /**
+     * Mark job as done (already applied)
+     *
+     * @param string $body
+     * @return void
+     */
+    private function markJobDone(string $body): void
+    {
+        $data = json_decode($body, true);
+
+        if (!isset($data['id'])) {
+            throw new \InvalidArgumentException('Missing "id" field in mark-job-done message');
+        }
+
+        $jobId = $data['id'];
+
+        Log::info('[mark-job-done] Marking job as done', [
+            'job_id' => $jobId,
+        ]);
+
+        $this->jobProcessor->markJobAsDone($jobId);
+    }
+
+    /**
+     * Reprocess job with additional message/feedback
+     *
+     * @param string $body
+     * @return void
+     */
+    private function reprocessJob(string $body): void
+    {
+        $data = json_decode($body, true);
+
+        if (!isset($data['id'])) {
+            throw new \InvalidArgumentException('Missing "id" field in reproccess-job message');
+        }
+
+        if (!isset($data['message'])) {
+            throw new \InvalidArgumentException('Missing "message" field in reproccess-job message');
+        }
+
+        $jobId = $data['id'];
+        $message = $data['message'];
+
+        Log::info('[reproccess-job] Reprocessing job', [
+            'job_id' => $jobId,
+            'message_length' => strlen($message),
+        ]);
+
+        $this->jobProcessor->reprocessJob($jobId, $message);
     }
 
     /**

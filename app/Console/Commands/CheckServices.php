@@ -116,14 +116,14 @@ class CheckServices extends Command
             $allOk = false;
         }
 
-        // Check Redis
+        // Check Redis (Optional - not required for worker)
         $this->info('Checking Redis...');
         try {
             Redis::connection()->ping();
             $this->line('✓ Redis: <fg=green>Available</>');
         } catch (\Exception $e) {
-            $this->line('✗ Redis: <fg=red>Unavailable</> - ' . $e->getMessage());
-            $allOk = false;
+            $this->line('⚠ Redis: <fg=yellow>Unavailable</> (optional) - ' . $e->getMessage());
+            // Not failing the check since Redis is optional
         }
 
         $this->newLine();

@@ -1,0 +1,77 @@
+{
+  "name": "Seu Nome Completo",
+  "email": "seu.email@example.com",
+  "phone": "+55 11 99999-9999",
+
+  "summary": "Breve descrição sobre você e sua experiência profissional.",
+
+  "skills": {
+    "backend": [
+      { "name": "PHP", "level": "senior" },
+      { "name": "Laravel", "level": "senior" }
+    ],
+    "frontend": [
+      { "name": "Vue.js", "level": "pleno" }
+    ],
+    "databases": [
+      { "name": "PostgreSQL", "level": "senior" }
+    ],
+    "devops": [
+      { "name": "Docker", "level": "pleno" }
+    ],
+    "tools": [
+      { "name": "RabbitMQ", "level": "pleno" }
+    ]
+  },
+
+  "experience": [
+    {
+      "company": "Nome da Empresa",
+      "position": "Cargo",
+      "period": "2020 - Atual",
+      "duration_years": 3,
+      "description": "Descrição do que você fazia",
+      "achievements": [
+        "Conquista 1",
+        "Conquista 2"
+      ],
+      "technologies": ["PHP", "Laravel", "Docker"]
+    }
+  ],
+
+  "education": [
+    {
+      "institution": "Universidade",
+      "degree": "Curso",
+      "period": "2016 - 2020",
+      "status": "Concluído"
+    }
+  ],
+
+  "certifications": [],
+
+  "languages": [
+    { "name": "Português", "level": "nativo" },
+    { "name": "Inglês", "level": "avançado" }
+  ],
+
+  "links": {
+    "github": "https://github.com/seu-usuario",
+    "linkedin": "https://linkedin.com/in/seu-usuario",
+    "portfolio": "https://seu-portfolio.com"
+  },
+
+  "preferences": {
+    "remote": true,
+    "hybrid": true,
+    "onsite": false,
+    "min_salary": null,
+    "desired_salary": null,
+    "locations": ["Remote", "São Paulo"],
+    "contract_types": ["CLT", "PJ"],
+    "availability": "immediate",
+    "willing_to_relocate": false
+  },
+
+  "seniority": "pleno"
+}

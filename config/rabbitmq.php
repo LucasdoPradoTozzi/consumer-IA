@@ -26,9 +26,19 @@ return [
     |--------------------------------------------------------------------------
     | Queue Configuration
     |--------------------------------------------------------------------------
+    |
+    | Multiple queues for different processing tasks:
+    | - process-jobs: Full job application processing (7-stage pipeline)
+    | - mark-job-done: Mark job as already applied (just update status)
+    | - reproccess-job: Reprocess job with additional message/feedback
+    |
     */
 
-    'queue' => env('RABBITMQ_QUEUE', 'jobs'),
+    'queues' => [
+        'process-jobs' => env('RABBITMQ_QUEUE_PROCESS', 'process-jobs'),
+        'mark-job-done' => env('RABBITMQ_QUEUE_MARK_DONE', 'mark-job-done'),
+        'reproccess-job' => env('RABBITMQ_QUEUE_REPROCESS', 'reproccess-job'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

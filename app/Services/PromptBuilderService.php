@@ -4,27 +4,27 @@ namespace App\Services;
 
 class PromptBuilderService
 {
-    /**
-     * Build classification prompt
-     * Returns JSON with: { "is_relevant": boolean, "reason": string }
-     *
-     * @param array $jobData Job information
-     * @param string|null $extractedText Text extracted from image (optional)
-     * @return string
-     */
-    public function buildClassificationPrompt(array $jobData, ?string $extractedText = null): string
-    {
-        $jobDescription = $jobData['description'] ?? '';
-        $jobTitle = $jobData['title'] ?? 'Unknown';
-        $company = $jobData['company'] ?? 'Unknown';
+  /**
+   * Build classification prompt
+   * Returns JSON with: { "is_relevant": boolean, "reason": string }
+   *
+   * @param array $jobData Job information
+   * @param string|null $extractedText Text extracted from image (optional)
+   * @return string
+   */
+  public function buildClassificationPrompt(array $jobData, ?string $extractedText = null): string
+  {
+    $jobDescription = $jobData['description'] ?? '';
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $company = $jobData['company'] ?? 'Unknown';
 
-        $context = "Job Title: {$jobTitle}\nCompany: {$company}\nDescription: {$jobDescription}";
+    $context = "Job Title: {$jobTitle}\nCompany: {$company}\nDescription: {$jobDescription}";
 
-        if ($extractedText) {
-            $context .= "\n\nExtracted Text from Image:\n{$extractedText}";
-        }
+    if ($extractedText) {
+      $context .= "\n\nExtracted Text from Image:\n{$extractedText}";
+    }
 
-        return <<<PROMPT
+    return <<<PROMPT
 You are an AI assistant that analyzes job postings to determine if they are relevant for application.
 
 Analyze the following job posting and determine if it is a real, legitimate job opportunity that should be considered for application.
@@ -44,30 +44,30 @@ Return your response as a valid JSON object with this exact structure:
 
 Return ONLY the JSON object, no additional text.
 PROMPT;
-    }
+  }
 
-    /**
-     * Build scoring prompt
-     * Returns JSON with: { "score": number (0-100), "justification": string }
-     *
-     * @param array $jobData Job information
-     * @param array $candidateProfile Candidate profile/resume data
-     * @return string
-     */
-    public function buildScorePrompt(array $jobData, array $candidateProfile): string
-    {
-        $jobDescription = $jobData['description'] ?? '';
-        $jobTitle = $jobData['title'] ?? 'Unknown';
-        $requiredSkills = $jobData['required_skills'] ?? [];
+  /**
+   * Build scoring prompt
+   * Returns JSON with: { "score": number (0-100), "justification": string }
+   *
+   * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile/resume data
+   * @return string
+   */
+  public function buildScorePrompt(array $jobData, array $candidateProfile): string
+  {
+    $jobDescription = $jobData['description'] ?? '';
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $requiredSkills = $jobData['required_skills'] ?? [];
 
-        $candidateName = $candidateProfile['name'] ?? 'Candidate';
-        $candidateSkills = $candidateProfile['skills'] ?? [];
-        $candidateExperience = $candidateProfile['experience'] ?? '';
+    $candidateName = $candidateProfile['name'] ?? 'Candidate';
+    $candidateSkills = $candidateProfile['skills'] ?? [];
+    $candidateExperience = $candidateProfile['experience'] ?? '';
 
-        $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
-        $candidateSkillsText = empty($candidateSkills) ? 'Not specified' : implode(', ', $candidateSkills);
+    $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
+    $candidateSkillsText = empty($candidateSkills) ? 'Not specified' : implode(', ', $candidateSkills);
 
-        return <<<PROMPT
+    return <<<PROMPT
 You are an AI assistant that scores job-candidate matches.
 
 Job Information:
@@ -94,29 +94,29 @@ Return your response as a valid JSON object with this exact structure:
 
 Return ONLY the JSON object, no additional text.
 PROMPT;
-    }
+  }
 
-    /**
-     * Build cover letter generation prompt
-     * Returns JSON with: { "cover_letter": string }
-     *
-     * @param array $jobData Job information
-     * @param array $candidateProfile Candidate profile data
-     * @return string
-     */
-    public function buildCoverLetterPrompt(array $jobData, array $candidateProfile): string
-    {
-        $jobTitle = $jobData['title'] ?? 'Unknown';
-        $company = $jobData['company'] ?? 'Unknown Company';
-        $jobDescription = $jobData['description'] ?? '';
+  /**
+   * Build cover letter generation prompt
+   * Returns JSON with: { "cover_letter": string }
+   *
+   * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile data
+   * @return string
+   */
+  public function buildCoverLetterPrompt(array $jobData, array $candidateProfile): string
+  {
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $company = $jobData['company'] ?? 'Unknown Company';
+    $jobDescription = $jobData['description'] ?? '';
 
-        $candidateName = $candidateProfile['name'] ?? 'Candidate';
-        $candidateSkills = $candidateProfile['skills'] ?? [];
-        $candidateExperience = $candidateProfile['experience'] ?? '';
+    $candidateName = $candidateProfile['name'] ?? 'Candidate';
+    $candidateSkills = $candidateProfile['skills'] ?? [];
+    $candidateExperience = $candidateProfile['experience'] ?? '';
 
-        $candidateSkillsText = empty($candidateSkills) ? 'Various skills' : implode(', ', $candidateSkills);
+    $candidateSkillsText = empty($candidateSkills) ? 'Various skills' : implode(', ', $candidateSkills);
 
-        return <<<PROMPT
+    return <<<PROMPT
 You are an AI assistant that writes professional cover letters for job applications.
 
 Job Details:
@@ -143,28 +143,28 @@ Return your response as a valid JSON object with this exact structure:
 
 Return ONLY the JSON object, no additional text.
 PROMPT;
-    }
+  }
 
-    /**
-     * Build resume adjustment prompt
-     * Returns JSON with: { "adjusted_resume": string, "changes_made": array }
-     *
-     * @param array $jobData Job information
-     * @param array $candidateProfile Candidate profile data
-     * @return string
-     */
-    public function buildResumeAdjustmentPrompt(array $jobData, array $candidateProfile): string
-    {
-        $jobTitle = $jobData['title'] ?? 'Unknown';
-        $jobDescription = $jobData['description'] ?? '';
-        $requiredSkills = $jobData['required_skills'] ?? [];
+  /**
+   * Build resume adjustment prompt
+   * Returns JSON with: { "adjusted_resume": string, "changes_made": array }
+   *
+   * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile data
+   * @return string
+   */
+  public function buildResumeAdjustmentPrompt(array $jobData, array $candidateProfile): string
+  {
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $jobDescription = $jobData['description'] ?? '';
+    $requiredSkills = $jobData['required_skills'] ?? [];
 
-        $currentResume = $candidateProfile['resume_text'] ?? '';
-        $candidateSkills = $candidateProfile['skills'] ?? [];
+    $currentResume = $candidateProfile['resume_text'] ?? '';
+    $candidateSkills = $candidateProfile['skills'] ?? [];
 
-        $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
+    $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
 
-        return <<<PROMPT
+    return <<<PROMPT
 You are an AI assistant that helps optimize resumes for specific job applications.
 
 Job Requirements:
@@ -195,5 +195,53 @@ Return your response as a valid JSON object with this exact structure:
 
 Return ONLY the JSON object, no additional text.
 PROMPT;
-    }
+  }
+
+  /**
+   * Build reclassification prompt with additional message context
+   * Used when reprocessing a job with user feedback
+   * Returns JSON with: { "is_relevant": boolean, "reason": string }
+   *
+   * @param array $jobData Job information
+   * @param string $message User's feedback or additional context
+   * @param string $originalStatus Previous status of the job
+   * @return string
+   */
+  public function buildReclassificationPrompt(
+    array $jobData,
+    string $message,
+    string $originalStatus
+  ): string {
+    $jobDescription = $jobData['description'] ?? '';
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $company = $jobData['company'] ?? 'Unknown';
+
+    $context = "Job Title: {$jobTitle}\nCompany: {$company}\nDescription: {$jobDescription}";
+
+    return <<<PROMPT
+You are an AI assistant that analyzes job postings to determine if they are relevant for application.
+
+This job was previously evaluated with status: "{$originalStatus}"
+
+The user has requested reprocessing with this additional context:
+"{$message}"
+
+Job details:
+{$context}
+
+Re-evaluate this job posting taking into account the user's message. Consider:
+- The user's specific feedback or concerns
+- Whether the additional context changes the relevance assessment
+- Any new information provided that wasn't considered before
+- The previous status and whether it should be reconsidered
+
+Return your response as a valid JSON object with this exact structure:
+{
+  "is_relevant": true or false,
+  "reason": "Brief explanation of your classification decision considering the user's message"
+}
+
+Return ONLY the JSON object, no additional text.
+PROMPT;
+  }
 }

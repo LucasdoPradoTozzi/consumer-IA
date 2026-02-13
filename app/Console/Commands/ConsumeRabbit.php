@@ -21,7 +21,7 @@ class ConsumeRabbit extends Command
      *
      * @var string
      */
-    protected $description = 'Consume messages from RabbitMQ queue';
+    protected $description = 'Consume messages from RabbitMQ queues (3 queues)';
 
     /**
      * Execute the console command.
@@ -31,9 +31,14 @@ class ConsumeRabbit extends Command
      */
     public function handle(RabbitConsumerService $consumer): int
     {
+        $queues = config('rabbitmq.queues');
+
         $this->info('Starting RabbitMQ consumer...');
-        $this->info('Queue: ' . config('rabbitmq.queue'));
         $this->info('Host: ' . config('rabbitmq.host'));
+        $this->info('Queues:');
+        $this->line('  • ' . $queues['process-jobs'] . ' (full processing)');
+        $this->line('  • ' . $queues['mark-job-done'] . ' (mark as applied)');
+        $this->line('  • ' . $queues['reproccess-job'] . ' (reprocess with message)');
         $this->info('Prefetch: ' . config('rabbitmq.prefetch_count'));
         $this->info('Press Ctrl+C to stop');
         $this->newLine();

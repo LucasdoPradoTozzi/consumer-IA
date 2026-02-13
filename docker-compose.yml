@@ -26,7 +26,6 @@ services:
     depends_on:
       - postgres
       - redis
-      - rabbitmq
       - ollama
     restart: unless-stopped
     networks:
@@ -51,27 +50,6 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
-
-  # RabbitMQ Message Broker
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: ${APP_NAME}-rabbitmq
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "${EXTERNAL_PORT_RABBITMQ}:5672"
-      - "${EXTERNAL_PORT_RABBITMQ_ADMIN}:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - worker-net
 
   # PostgreSQL Database
   postgres:
@@ -112,10 +90,11 @@ services:
       - app
 
   # Redis Cache
+  # Redis Cache
   redis:
     image: redis:6.0-alpine
     container_name: ${APP_NAME}-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
@@ -130,8 +109,6 @@ networks:
 
 volumes:
   ollama_data:
-    driver: local
-  rabbitmq_data:
     driver: local
   postgres_data:
     driver: local

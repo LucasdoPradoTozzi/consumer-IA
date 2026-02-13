@@ -73,6 +73,11 @@
                             <i class="bi bi-list-ul"></i> Dashboard
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ route('logs.index') }}">
+                            <i class="bi bi-terminal"></i> Worker Logs
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
