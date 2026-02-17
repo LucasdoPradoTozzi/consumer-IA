@@ -5,6 +5,113 @@ namespace App\Services;
 class PromptBuilderService
 {
   /**
+   * Build resume adjustment prompt with dynamic examples (pt/en)
+   * Returns JSON with: { "adjusted_resume": string, "changes_made": array }
+   *
+   * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile data
+   * @return string
+   */
+  public function buildResumeAdjustmentPromptWithExamples(array $jobData, array $candidateProfile, ?string $language = null): string
+  {
+    // Normalize language (portuguese, english, pt, en)
+    $lang = strtolower($language ?? 'pt');
+    if ($lang === 'portuguese') $lang = 'pt';
+    if ($lang === 'english') $lang = 'en';
+    
+    // Default to 'pt' if not en
+    if ($lang !== 'en') $lang = 'pt';
+
+    // Carregar exemplos reais do config
+    $examplePt = config('curriculum.default_candidate');
+    $exampleEn = config('curriculum_en.default_candidate');
+    $examplePtJson = json_encode(['lang' => 'pt'] + $examplePt, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $exampleEnJson = json_encode(['lang' => 'en'] + $exampleEn, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    // Serializar jobData (vaga) e candidateProfile como JSON
+    $jobDataJson = json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    $promptTemplate = config('prompts.resume_adjustment.prompt');
+    
+    // Decidir qual exemplo incluir
+    if ($lang === 'pt') {
+        $exemploDinamico = "Exemplo de preenchimento em português (deve ser usado como base):\n" . $examplePtJson;
+    } else {
+        $exemploDinamico = "Example of filling in English (must be used as base):\n" . $exampleEnJson;
+    }
+
+    return str_replace([
+        '[EXEMPLO_DINAMICO]',
+        '{candidateProfile}',
+        '{jobData}'
+    ], [
+        $exemploDinamico,
+        $candidateProfileJson,
+        $jobDataJson
+    ], $promptTemplate);
+}
+
+/**
+ * Build email application prompt
+ * Returns JSON with: { "subject": "string", "body": "string" }
+ *
+ * @param array $jobData Job information
+ * @param array $candidateProfile Candidate profile data
+ * @param string|null $language Language (pt, en)
+ * @return string
+ */
+public function buildEmailApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null): string
+{
+    $lang = strtolower($language ?? 'pt');
+    if ($lang === 'portuguese') $lang = 'pt';
+    if ($lang === 'english') $lang = 'en';
+    if ($lang !== 'en') $lang = 'pt';
+
+    $jobDataJson = json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    $promptTemplate = config('prompts.email.prompt');
+    
+    $prompt = str_replace([
+        '{jobData}',
+        '{candidateProfile}',
+        '{language}'
+    ], [
+        $jobDataJson,
+        $candidateProfileJson,
+        $lang === 'en' ? 'Inglês' : 'Português'
+    ], $promptTemplate);
+
+    return $prompt;
+}
+  /**
+   * Build extraction prompt
+   * Returns JSON with: { "extracted_info": object }
+   *
+   * @param array $jobData Job information
+   * @return string
+   */
+  public function buildExtractionPrompt(array $jobData): string
+  {
+    $jobTitle = $jobData['title'] ?? 'Unknown';
+    $company = $jobData['company'] ?? 'Unknown';
+    $jobDescription = $jobData['description'] ?? '';
+
+    $promptTemplate = config('prompts.extraction.prompt');
+
+    return str_replace([
+      '{jobTitle}',
+      '{company}',
+      '{jobDescription}'
+    ], [
+      $jobTitle,
+      $company,
+      $jobDescription
+    ], $promptTemplate);
+  }
+
+  /**
    * Build classification prompt
    * Returns JSON with: { "is_relevant": boolean, "reason": string }
    *
@@ -24,26 +131,9 @@ class PromptBuilderService
       $context .= "\n\nExtracted Text from Image:\n{$extractedText}";
     }
 
-    return <<<PROMPT
-You are an AI assistant that analyzes job postings to determine if they are relevant for application.
+    $promptTemplate = config('prompts.classification.prompt');
 
-Analyze the following job posting and determine if it is a real, legitimate job opportunity that should be considered for application.
-
-{$context}
-
-Classify this job posting as relevant or not based on these criteria:
-- Is it a real job posting (not spam, scam, or irrelevant content)?
-- Does it have clear job requirements and responsibilities?
-- Is it from a legitimate company or organization?
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "is_relevant": true or false,
-  "reason": "Brief explanation of your classification decision"
-}
-
-Return ONLY the JSON object, no additional text.
-PROMPT;
+    return str_replace('{context}', $context, $promptTemplate);
   }
 
   /**
@@ -59,41 +149,52 @@ PROMPT;
     $jobDescription = $jobData['description'] ?? '';
     $jobTitle = $jobData['title'] ?? 'Unknown';
     $requiredSkills = $jobData['required_skills'] ?? [];
+    $jobLanguage = $jobData['language'] ?? null;
 
     $candidateName = $candidateProfile['name'] ?? 'Candidate';
     $candidateSkills = $candidateProfile['skills'] ?? [];
     $candidateExperience = $candidateProfile['experience'] ?? '';
+    $candidateExperienceText = is_array($candidateExperience) ? 'Has professional experience' : ($candidateExperience ?: 'No experience specified');
+
+    // Flatten candidate skills
+    $candidateSkillsFlat = [];
+    if (is_array($candidateSkills)) {
+      foreach ($candidateSkills as $category => $skills) {
+        if (is_array($skills)) {
+          foreach ($skills as $skill) {
+            if (is_array($skill) && isset($skill['name'])) {
+              $candidateSkillsFlat[] = $skill['name'];
+            } elseif (is_string($skill)) {
+              $candidateSkillsFlat[] = $skill;
+            }
+          }
+        }
+      }
+    }
 
     $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
-    $candidateSkillsText = empty($candidateSkills) ? 'Not specified' : implode(', ', $candidateSkills);
+    $candidateSkillsText = empty($candidateSkillsFlat) ? 'Not specified' : implode(', ', $candidateSkillsFlat);
 
-    return <<<PROMPT
-You are an AI assistant that scores job-candidate matches.
+    $languageInstruction = $jobLanguage ? "\nLanguage of the job posting: {$jobLanguage}" : "";
+    $promptTemplate = config('prompts.scoring.prompt');
 
-Job Information:
-- Title: {$jobTitle}
-- Required Skills: {$skillsText}
-- Description: {$jobDescription}
-
-Candidate Profile:
-- Name: {$candidateName}
-- Skills: {$candidateSkillsText}
-- Experience: {$candidateExperience}
-
-Analyze how well this candidate matches the job requirements and provide a compatibility score from 0 to 100, where:
-- 0-30: Poor match (lacks critical skills or experience)
-- 31-60: Fair match (has some relevant skills but missing key requirements)
-- 61-80: Good match (meets most requirements with minor gaps)
-- 81-100: Excellent match (highly qualified, meets or exceeds all requirements)
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "score": 75,
-  "justification": "Detailed explanation of the score, highlighting matching skills and gaps"
-}
-
-Return ONLY the JSON object, no additional text.
-PROMPT;
+    return str_replace([
+      '{languageInstruction}',
+      '{jobTitle}',
+      '{skillsText}',
+      '{jobDescription}',
+      '{candidateName}',
+      '{candidateSkillsText}',
+      '{candidateExperienceText}'
+    ], [
+      $languageInstruction,
+      $jobTitle,
+      $skillsText,
+      $jobDescription,
+      $candidateName,
+      $candidateSkillsText,
+      $candidateExperienceText
+    ], $promptTemplate);
   }
 
   /**
@@ -106,43 +207,52 @@ PROMPT;
    */
   public function buildCoverLetterPrompt(array $jobData, array $candidateProfile): string
   {
-    $jobTitle = $jobData['title'] ?? 'Unknown';
-    $company = $jobData['company'] ?? 'Unknown Company';
-    $jobDescription = $jobData['description'] ?? '';
+    $jobTitle = isset($jobData['title']) && !is_array($jobData['title']) ? $jobData['title'] : (is_array($jobData['title'] ?? null) ? json_encode($jobData['title']) : 'Unknown');
+    $company = isset($jobData['company']) && !is_array($jobData['company']) ? $jobData['company'] : (is_array($jobData['company'] ?? null) ? json_encode($jobData['company']) : 'Unknown Company');
+    $jobDescription = isset($jobData['description']) && !is_array($jobData['description']) ? $jobData['description'] : (is_array($jobData['description'] ?? null) ? json_encode($jobData['description']) : '');
 
     $candidateName = $candidateProfile['name'] ?? 'Candidate';
     $candidateSkills = $candidateProfile['skills'] ?? [];
     $candidateExperience = $candidateProfile['experience'] ?? '';
 
-    $candidateSkillsText = empty($candidateSkills) ? 'Various skills' : implode(', ', $candidateSkills);
+    // Flatten candidate skills
+    $candidateSkillsFlat = [];
+    if (is_array($candidateSkills)) {
+      foreach ($candidateSkills as $category => $skills) {
+        if (is_array($skills)) {
+          foreach ($skills as $skill) {
+            if (is_array($skill) && isset($skill['name'])) {
+              $candidateSkillsFlat[] = $skill['name'];
+            } elseif (is_string($skill)) {
+              $candidateSkillsFlat[] = $skill;
+            }
+          }
+        }
+      }
+    }
 
-    return <<<PROMPT
-You are an AI assistant that writes professional cover letters for job applications.
+    $candidateSkillsText = empty($candidateSkillsFlat) ? 'Various skills' : implode(', ', $candidateSkillsFlat);
+    if (is_array($candidateExperience)) {
+      $candidateExperience = json_encode($candidateExperience);
+    }
 
-Job Details:
-- Position: {$jobTitle}
-- Company: {$company}
-- Description: {$jobDescription}
+    $promptTemplate = config('prompts.cover_letter.prompt');
 
-Candidate Information:
-- Name: {$candidateName}
-- Skills: {$candidateSkillsText}
-- Experience: {$candidateExperience}
-
-Write a compelling, professional cover letter for this candidate applying to this position. The cover letter should:
-- Be concise (250-350 words)
-- Highlight relevant skills and experience
-- Show enthusiasm for the role and company
-- Be professional but personable
-- Include a strong opening and closing
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "cover_letter": "The complete cover letter text here"
-}
-
-Return ONLY the JSON object, no additional text.
-PROMPT;
+    return str_replace([
+      '{jobTitle}',
+      '{company}',
+      '{jobDescription}',
+      '{candidateName}',
+      '{candidateSkillsText}',
+      '{candidateExperience}'
+    ], [
+      $jobTitle,
+      $company,
+      $jobDescription,
+      $candidateName,
+      $candidateSkillsText,
+      $candidateExperience
+    ], $promptTemplate);
   }
 
   /**
@@ -155,46 +265,67 @@ PROMPT;
    */
   public function buildResumeAdjustmentPrompt(array $jobData, array $candidateProfile): string
   {
-    $jobTitle = $jobData['title'] ?? 'Unknown';
-    $jobDescription = $jobData['description'] ?? '';
+    // Defensive assignment for all possibly missing fields
     $requiredSkills = $jobData['required_skills'] ?? [];
-
-    $currentResume = $candidateProfile['resume_text'] ?? '';
+    if (is_null($requiredSkills)) {
+      $requiredSkills = [];
+    }
+    $currentResume = $candidateProfile['resume'] ?? '';
+    if (is_null($currentResume)) {
+      $currentResume = '';
+    }
     $candidateSkills = $candidateProfile['skills'] ?? [];
+    if (is_null($candidateSkills)) {
+      $candidateSkills = [];
+    }
 
-    $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
+    \Log::info('[PromptBuilder] buildResumeAdjustmentPrompt fields', [
+      'jobTitle_type' => isset($jobData['title']) ? gettype($jobData['title']) : 'undefined',
+      'jobTitle_value' => $jobData['title'] ?? null,
+      'jobDescription_type' => isset($jobData['description']) ? gettype($jobData['description']) : 'undefined',
+      'jobDescription_value' => $jobData['description'] ?? null,
+      'requiredSkills_type' => gettype($requiredSkills),
+      'requiredSkills_value' => is_array($requiredSkills) ? json_encode(array_slice($requiredSkills, 0, 3)) : $requiredSkills,
+      'currentResume_type' => gettype($currentResume),
+      'currentResume_value' => is_array($currentResume) ? json_encode($currentResume) : $currentResume,
+      'candidateSkills_type' => gettype($candidateSkills),
+      'candidateSkills_value' => is_array($candidateSkills) ? json_encode(array_slice($candidateSkills, 0, 3)) : $candidateSkills,
+    ]);
 
-    return <<<PROMPT
-You are an AI assistant that helps optimize resumes for specific job applications.
+    $jobTitle = isset($jobData['title']) && !is_array($jobData['title']) ? $jobData['title'] : (is_array($jobData['title'] ?? null) ? json_encode($jobData['title']) : 'Unknown');
+    $jobDescription = isset($jobData['description']) && !is_array($jobData['description']) ? $jobData['description'] : (is_array($jobData['description'] ?? null) ? json_encode($jobData['description']) : '');
+    $skillsText = empty($requiredSkills) ? 'Not specified' : (is_array($requiredSkills) ? implode(', ', $requiredSkills) : (string)$requiredSkills);
+    $currentResume = is_array($currentResume) ? json_encode($currentResume) : (string)$currentResume;
+    $candidateSkills = is_array($candidateSkills) ? json_encode($candidateSkills) : (string)$candidateSkills;
 
-Job Requirements:
-- Position: {$jobTitle}
-- Description: {$jobDescription}
-- Required Skills: {$skillsText}
+    \Log::info('[PromptBuilder] buildResumeAdjustmentPrompt sanitized fields', [
+      'jobTitle_type' => gettype($jobTitle),
+      'jobTitle_value' => $jobTitle,
+      'jobDescription_type' => gettype($jobDescription),
+      'jobDescription_value' => $jobDescription,
+      'skillsText_type' => gettype($skillsText),
+      'skillsText_value' => $skillsText,
+      'currentResume_type' => gettype($currentResume),
+      'currentResume_value' => $currentResume,
+      'candidateSkills_type' => gettype($candidateSkills),
+      'candidateSkills_value' => $candidateSkills,
+    ]);
 
-Current Resume:
-{$currentResume}
+    $promptTemplate = config('prompts.resume_optimization.prompt');
 
-Candidate's Skills: {$candidateSkills}
-
-Analyze the resume and suggest adjustments to better align it with the job requirements. Your suggestions should:
-- Highlight relevant experience that matches the job description
-- Emphasize skills mentioned in the job posting
-- Suggest reordering or rephrasing sections for better impact
-- Maintain truthfulness (don't fabricate experience)
-- Keep the same overall length
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "adjusted_resume": "The complete adjusted resume text",
-  "changes_made": [
-    "List of specific changes made",
-    "Each change as a separate string in the array"
-  ]
-}
-
-Return ONLY the JSON object, no additional text.
-PROMPT;
+    return str_replace([
+      '{jobTitle}',
+      '{jobDescription}',
+      '{skillsText}',
+      '{currentResume}',
+      '{candidateSkills}'
+    ], [
+      $jobTitle,
+      $jobDescription,
+      $skillsText,
+      $currentResume,
+      $candidateSkills
+    ], $promptTemplate);
   }
 
   /**
@@ -217,31 +348,16 @@ PROMPT;
     $company = $jobData['company'] ?? 'Unknown';
 
     $context = "Job Title: {$jobTitle}\nCompany: {$company}\nDescription: {$jobDescription}";
+    $promptTemplate = config('prompts.reclassification.prompt');
 
-    return <<<PROMPT
-You are an AI assistant that analyzes job postings to determine if they are relevant for application.
-
-This job was previously evaluated with status: "{$originalStatus}"
-
-The user has requested reprocessing with this additional context:
-"{$message}"
-
-Job details:
-{$context}
-
-Re-evaluate this job posting taking into account the user's message. Consider:
-- The user's specific feedback or concerns
-- Whether the additional context changes the relevance assessment
-- Any new information provided that wasn't considered before
-- The previous status and whether it should be reconsidered
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "is_relevant": true or false,
-  "reason": "Brief explanation of your classification decision considering the user's message"
-}
-
-Return ONLY the JSON object, no additional text.
-PROMPT;
+    return str_replace([
+      '{originalStatus}',
+      '{message}',
+      '{context}'
+    ], [
+      $originalStatus,
+      $message,
+      $context
+    ], $promptTemplate);
   }
 }

@@ -112,6 +112,25 @@ return [
             $text .= "\n";
         }
 
+        $text .= "EDUCATION:\n";
+        foreach ($profile['education'] ?? [] as $edu) {
+            $text .= "{$edu['degree']} at {$edu['institution']} ({$edu['period']}) - {$edu['status']}\n";
+        }
+
+        if (!empty($profile['certifications'])) {
+            $text .= "\nCERTIFICATIONS:\n";
+            foreach ($profile['certifications'] as $cert) {
+                $text .= "- {$cert}\n";
+            }
+        }
+
+        if (!empty($profile['languages'])) {
+            $text .= "\nLANGUAGES:\n";
+            foreach ($profile['languages'] as $lang) {
+                $text .= "- {$lang['name']}: {$lang['level']}\n";
+            }
+        }
+
         return $text;
     },
 

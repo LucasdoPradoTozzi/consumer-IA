@@ -64,6 +64,28 @@
     </div>
 </div>
 
+<!-- Queue Messages Section -->
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-cloud-arrow-down"></i> Últimas Mensagens das Filas (Redis)
+                </span>
+                <small class="text-muted">
+                    Atualiza automático: <span id="queue-last-update">Nunca</span>
+                </small>
+            </div>
+            <div class="card-body" id="queue-messages-container">
+                <div class="text-center text-muted py-3">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <span class="ms-2">Carregando mensagens das filas...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>
@@ -237,6 +259,104 @@
         return div.innerHTML;
     }
 
+    // Fetch queue messages from Redis
+    function fetchQueueMessages() {
+        fetch('{{ route("logs.queue-messages") }}')
+            .then(response => response.json())
+            .then(data => {
+                displayQueueMessages(data.messages);
+
+                // Update timestamp
+                const now = new Date(data.timestamp);
+                document.getElementById('queue-last-update').textContent = now.toLocaleTimeString('pt-BR');
+            })
+            .catch(error => {
+                console.error('Error fetching queue messages:', error);
+                document.getElementById('queue-messages-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i> Erro ao carregar mensagens das filas
+                    </div>
+                `;
+            });
+    }
+
+    // Display queue messages
+    function displayQueueMessages(messages) {
+        const container = document.getElementById('queue-messages-container');
+
+        let html = '';
+
+        messages.forEach(msg => {
+            const statusBadge = msg.status === 'success' ? 'success' :
+                msg.status === 'processing' ? 'warning' :
+                msg.status === 'failed' ? 'danger' : 'secondary';
+
+            const statusIcon = msg.status === 'success' ? '✓' :
+                msg.status === 'processing' ? '⏳' :
+                msg.status === 'failed' ? '✗' : '○';
+
+            html += `
+                <div class="mb-3 pb-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">
+                            <span class="badge bg-primary">${msg.queue}</span>
+                        </h6>
+                        <span class="badge bg-${statusBadge}">${statusIcon} ${msg.status.toUpperCase()}</span>
+                    </div>
+            `;
+
+            if (msg.has_data) {
+                if (msg.timestamp) {
+                    const time = new Date(msg.timestamp);
+                    html += `<small class="text-muted"><i class="bi bi-clock"></i> ${time.toLocaleString('pt-BR')}</small> `;
+                }
+
+                if (msg.size) {
+                    html += `<small class="text-muted"><i class="bi bi-file-earmark"></i> ${(msg.size / 1024).toFixed(2)} KB</small>`;
+                }
+
+                if (msg.error) {
+                    html += `<div class="alert alert-danger alert-sm mt-2 mb-2"><i class="bi bi-exclamation-triangle"></i> ${msg.error}</div>`;
+                }
+
+                if (msg.data) {
+                    html += '<div class="mt-2"><small class="text-muted"><strong>Dados:</strong></small>';
+
+                    if (msg.data.job_id) {
+                        html += `<div><small><strong>Job ID:</strong> ${msg.data.job_id}</small></div>`;
+                    }
+
+                    if (msg.data.type) {
+                        html += `<div><small><strong>Type:</strong> ${msg.data.type}</small></div>`;
+                    }
+
+                    if (msg.data.data && msg.data.data.job && msg.data.data.job.title) {
+                        html += `<div><small><strong>Title:</strong> ${msg.data.data.job.title}</small></div>`;
+                    }
+
+                    if (msg.data.data && msg.data.data.job && msg.data.data.job.company) {
+                        html += `<div><small><strong>Company:</strong> ${msg.data.data.job.company}</small></div>`;
+                    }
+
+                    // Show JSON preview
+                    html += `
+                        <details class="mt-2">
+                            <summary style="cursor: pointer;"><small>Ver JSON completo</small></summary>
+                            <pre class="bg-dark text-light p-2 rounded mt-2" style="font-size: 11px; max-height: 300px; overflow-y: auto;">${JSON.stringify(msg.data, null, 2)}</pre>
+                        </details>
+                    </div>
+                    `;
+                }
+            } else {
+                html += '<div class="text-muted"><small>Nenhuma mensagem recebida ainda</small></div>';
+            }
+
+            html += '</div>';
+        });
+
+        container.innerHTML = html || '<div class="text-center text-muted py-3">Nenhuma fila configurada</div>';
+    }
+
     // Clear logs
     function clearLogs() {
         if (!confirm('Tem certeza que deseja limpar todos os logs?')) {
@@ -270,6 +390,7 @@
         if (isAutoRefresh) {
             autoRefreshInterval = setInterval(() => {
                 fetchLogs();
+                fetchQueueMessages();
                 checkWorkerStatus();
             }, refreshIntervalSeconds * 1000);
         }
@@ -278,6 +399,7 @@
     // Event listeners
     document.getElementById('refresh-btn').addEventListener('click', () => {
         fetchLogs();
+        fetchQueueMessages();
         checkWorkerStatus();
     });
 
@@ -299,6 +421,7 @@
 
     // Initialize
     fetchLogs();
+    fetchQueueMessages();
     checkWorkerStatus();
     setupAutoRefresh();
 

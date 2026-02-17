@@ -22,22 +22,27 @@ class JobApplicationController extends Controller
 
         // Filter by relevance
         if ($request->filled('relevant')) {
-            $query->where('is_relevant', $request->relevant === 'yes');
+            $isRelevant = $request->relevant === 'yes';
+            $query->whereHas('scorings', function ($q) use ($isRelevant) {
+                $q->where('is_relevant', $isRelevant);
+            });
         }
 
         // Filter by score
         if ($request->filled('min_score')) {
-            $query->where('match_score', '>=', $request->min_score);
+            $query->whereHas('scorings', function ($q) use ($request) {
+                $q->where('score', '>=', $request->min_score);
+            });
         }
 
         // Search
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
-                $q->where('job_title', 'like', "%{$search}%")
-                    ->orWhere('job_company', 'like', "%{$search}%")
-                    ->orWhere('candidate_name', 'like', "%{$search}%")
-                    ->orWhere('candidate_email', 'like', "%{$search}%");
+                $q->whereRaw("job_data->>'title' ILIKE ?", ["%{$search}%"])
+                    ->orWhereRaw("job_data->>'company' ILIKE ?", ["%{$search}%"])
+                    ->orWhereRaw("job_data->>'candidate_name' ILIKE ?", ["%{$search}%"])
+                    ->orWhereRaw("job_data->>'candidate_email' ILIKE ?", ["%{$search}%"]);
             });
         }
 
@@ -46,12 +51,12 @@ class JobApplicationController extends Controller
         // Stats for dashboard
         $stats = [
             'total' => JobApplication::count(),
-            'pending' => JobApplication::pending()->count(),
-            'processing' => JobApplication::processing()->count(),
-            'completed' => JobApplication::completed()->count(),
-            'rejected' => JobApplication::rejected()->count(),
-            'failed' => JobApplication::failed()->count(),
-            'avg_score' => JobApplication::whereNotNull('match_score')->avg('match_score'),
+            'pending' => JobApplication::where('status', 'pending')->count(),
+            'processing' => JobApplication::where('status', 'processing')->count(),
+            'completed' => JobApplication::where('status', 'completed')->count(),
+            'rejected' => JobApplication::where('status', 'rejected')->count(),
+            'failed' => JobApplication::where('status', 'failed')->count(),
+            'avg_score' => \App\Models\JobScoring::avg('scoring_score'),
         ];
 
         return view('job-applications.index', compact('applications', 'stats'));
@@ -70,16 +75,9 @@ class JobApplicationController extends Controller
      */
     public function reprocess(JobApplication $jobApplication)
     {
-        if (!$jobApplication->canReprocess()) {
-            return back()->with('error', 'Esta aplicação não pode ser reprocessada.');
-        }
-
         // Reset status to pending
         $jobApplication->update([
             'status' => JobApplication::STATUS_PENDING,
-            'error_message' => null,
-            'error_trace' => null,
-            'failed_at' => null,
         ]);
 
         // TODO: Republish to RabbitMQ queue
@@ -95,7 +93,6 @@ class JobApplicationController extends Controller
     {
         $jobApplication->update([
             'status' => JobApplication::STATUS_COMPLETED,
-            'completed_at' => now(),
         ]);
 
         return back()->with('success', 'Aplicação marcada como concluída.');
@@ -106,13 +103,19 @@ class JobApplicationController extends Controller
      */
     public function downloadPdf(JobApplication $jobApplication, string $type)
     {
+        $version = $jobApplication->versions()->latest()->first();
+
+        if (!$version) {
+            abort(404, 'Versão não encontrada');
+        }
+
         $path = match ($type) {
-            'cover-letter' => $jobApplication->cover_letter_pdf_path,
-            'resume' => $jobApplication->resume_pdf_path,
+            'cover-letter' => $version->cover_letter_path,
+            'resume' => $version->resume_path,
             default => null,
         };
 
-        if (!$path || !file_exists($path)) {
+        if (!$path || !file_exists(storage_path('app/' . $path))) {
             abort(404, 'PDF não encontrado');
         }
 
@@ -121,7 +124,7 @@ class JobApplicationController extends Controller
             'resume' => "resume_{$jobApplication->job_id}.pdf",
         };
 
-        return Response::download($path, $filename);
+        return Response::download(storage_path('app/' . $path), $filename);
     }
 
     /**
@@ -129,13 +132,14 @@ class JobApplicationController extends Controller
      */
     public function destroy(JobApplication $jobApplication)
     {
-        // Delete PDFs if exist
-        if ($jobApplication->cover_letter_pdf_path && file_exists($jobApplication->cover_letter_pdf_path)) {
-            unlink($jobApplication->cover_letter_pdf_path);
-        }
-
-        if ($jobApplication->resume_pdf_path && file_exists($jobApplication->resume_pdf_path)) {
-            unlink($jobApplication->resume_pdf_path);
+        // Delete associated files
+        foreach ($jobApplication->versions as $version) {
+            if ($version->cover_letter_path && file_exists(storage_path('app/' . $version->cover_letter_path))) {
+                unlink(storage_path('app/' . $version->cover_letter_path));
+            }
+            if ($version->resume_path && file_exists(storage_path('app/' . $version->resume_path))) {
+                unlink(storage_path('app/' . $version->resume_path));
+            }
         }
 
         $jobApplication->delete();

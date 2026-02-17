@@ -1,0 +1,97 @@
+<?php
+
+namespace App\Services\Workers;
+
+use App\Models\JobApplication;
+use App\Models\JobDeduplication;
+use App\Services\JobCoordinatorService;
+use Illuminate\Support\Facades\Log;
+
+class DeduplicationWorker
+{
+    public function __construct(
+        private readonly JobCoordinatorService $jobCoordinator,
+    ) {}
+
+    /**
+     * Check if job is duplicate and handle accordingly
+     *
+     * @param JobApplication $jobApplication
+     * @return void
+     */
+    public function process(JobApplication $jobApplication): void
+    {
+        $link = $jobData['link'] ?? null;
+        $content = $rawMessage ?? json_encode($jobData);
+
+        // Try to find by link first
+        if ($link) {
+            $hash = md5($link);
+            $existing = JobDeduplication::where('hash', $hash)->where('source', 'link')->first();
+
+            if ($existing) {
+                Log::info('[DeduplicationWorker] Duplicate job found by link', [
+                    'link' => $link,
+                    'existing_job_id' => $existing->job_application_id,
+                ]);
+
+                return [
+                    'is_duplicate' => true,
+                    'job_application' => $existing->jobApplication,
+                ];
+            }
+        }
+
+        // If no link or link not found, check by content hash
+        $contentHash = md5($content);
+        $existing = JobDeduplication::where('hash', $contentHash)->where('source', 'content')->first();
+
+        if ($existing) {
+            Log::info('[DeduplicationWorker] Duplicate job found by content', [
+                'content_hash' => $contentHash,
+                'existing_job_id' => $existing->job_application_id,
+            ]);
+
+            return [
+                'is_duplicate' => true,
+                'job_application' => $existing->jobApplication,
+            ];
+        }
+
+        // Not a duplicate, create new job application
+        $jobId = $link ? md5($link) : md5($content . uniqid());
+
+        $jobApplication = JobApplication::create([
+            'job_id' => $jobId,
+            'type' => 'job_application',
+            'status' => JobApplication::STATUS_PENDING,
+            'job_title' => $jobData['title'] ?? null,
+            'job_company' => $jobData['company'] ?? null,
+            'job_description' => $jobData['description'] ?? null,
+            'job_skills' => $jobData['required_skills'] ?? null,
+            'job_data' => $jobData,
+            'raw_message' => $rawMessage,
+            'started_at' => now(),
+        ]);
+
+        // Create deduplication record
+        JobDeduplication::create([
+            'hash' => $link ? md5($link) : $contentHash,
+            'source' => $link ? 'link' : 'content',
+            'original_link' => $link,
+            'original_content' => $link ? null : $content,
+            'job_application_id' => $jobApplication->id,
+            'first_seen_at' => now(),
+        ]);
+
+        Log::info('[DeduplicationWorker] New job created', [
+            'job_id' => $jobId,
+            'link' => $link,
+        ]);
+
+        return [
+            'is_duplicate' => false,
+            'job_application' => $jobApplication,
+        ];
+    }
+}

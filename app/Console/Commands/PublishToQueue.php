@@ -35,9 +35,18 @@ class PublishToQueue extends Command
      */
     public function handle(): int
     {
-        $queueKey = $this->argument('queue');
-
-        // Map queue names
+        $lock = cache()->lock('publish-to-queue-lock', 600);
+        if (!$lock->get()) {
+            $this->warn('Another instance is already running. Aborting.');
+            return 0;
+        }
+        try {
+            $queueKey = $this->argument('queue');
+            // Map queue names
+            // ...existing code...
+        } finally {
+            $lock->release();
+        }
         $queueMap = [
             'process-jobs' => config('rabbitmq.queues.process-jobs'),
             'mark-job-done' => config('rabbitmq.queues.mark-job-done'),

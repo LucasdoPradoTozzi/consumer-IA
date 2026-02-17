@@ -33,6 +33,10 @@ class OllamaService
                 'images_count' => count($images),
             ]);
 
+            // Logar o prompt "cru" (sem json_encode)
+            Log::info('[Ollama] Prompt enviado (cru):');
+            Log::info($prompt);
+
             $response = Http::timeout($timeout)
                 ->withHeaders([
                     'Content-Type' => 'application/json',
@@ -44,13 +48,31 @@ class OllamaService
                     'stream' => false,
                 ]);
 
+
+
             $executionTime = microtime(true) - $startTime;
 
+            Log::info('[Ollama] Request sent, received response', [
+                'status' => $response->status(),
+                'execution_time' => round($executionTime, 2),
+                'response_length' => strlen($response->body()),
+            ]);
+
             if (!$response->successful()) {
+                Log::error('[Ollama] API request failed', [
+                    'status' => $response->status(),
+                    'response_body' => $response->body(),
+                    'execution_time' => round($executionTime, 2),
+                ]);
                 throw new \Exception(
                     "Ollama API request failed with status {$response->status()}: {$response->body()}"
                 );
             }
+
+            Log::info('[Ollama] Generation successful', [
+                'execution_time' => round($executionTime, 2),
+                'response_length' => strlen($response->body()),
+            ]);
 
             $data = $response->json();
 
@@ -59,6 +81,10 @@ class OllamaService
             }
 
             $responseText = $data['response'];
+
+            if (!is_string($responseText)) {
+                $responseText = json_encode($responseText);
+            }
 
             Log::info(sprintf(
                 '[Ollama] Profile=%s Model=%s Time=%.1fs',

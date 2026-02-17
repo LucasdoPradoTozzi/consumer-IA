@@ -7,55 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 class JobApplication extends Model
 {
     protected $fillable = [
-        'job_id',
-        'type',
-        'status',
-        'job_title',
-        'job_company',
-        'job_description',
-        'job_skills',
+        'raw_message',
         'job_data',
-        'candidate_name',
-        'candidate_email',
-        'candidate_data',
-        'is_relevant',
-        'classification_reason',
-        'match_score',
-        'score_justification',
-        'cover_letter',
-        'adjusted_resume',
-        'resume_changes',
-        'cover_letter_pdf_path',
-        'resume_pdf_path',
-        'email_sent',
-        'email_sent_at',
-        'error_message',
-        'error_trace',
-        'started_at',
-        'classified_at',
-        'scored_at',
-        'completed_at',
-        'failed_at',
-        'metadata',
-        'processing_time_seconds',
+        'status',
     ];
 
     protected $casts = [
-        'job_skills' => 'array',
+        'raw_message' => 'array',
         'job_data' => 'array',
-        'candidate_data' => 'array',
-        'resume_changes' => 'array',
-        'metadata' => 'array',
-        'is_relevant' => 'boolean',
-        'email_sent' => 'boolean',
-        'match_score' => 'integer',
-        'processing_time_seconds' => 'integer',
-        'email_sent_at' => 'datetime',
-        'started_at' => 'datetime',
-        'classified_at' => 'datetime',
-        'scored_at' => 'datetime',
-        'completed_at' => 'datetime',
-        'failed_at' => 'datetime',
     ];
 
     // Status constants
@@ -63,6 +22,8 @@ class JobApplication extends Model
     public const STATUS_PROCESSING = 'processing';
     public const STATUS_CLASSIFIED = 'classified';
     public const STATUS_SCORED = 'scored';
+    public const STATUS_GENERATED = 'generated';
+    public const STATUS_PDF_READY = 'pdf_ready';
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_FAILED = 'failed';
@@ -149,6 +110,42 @@ class JobApplication extends Model
         };
     }
 
+    // Accessors for job_data fields
+    public function getJobTitleAttribute()
+    {
+        return $this->job_data['title'] ?? null;
+    }
+
+    public function getJobCompanyAttribute()
+    {
+        return $this->job_data['company'] ?? null;
+    }
+
+    public function getJobDescriptionAttribute()
+    {
+        return $this->job_data['description'] ?? null;
+    }
+
+    public function getJobSkillsAttribute()
+    {
+        return $this->job_data['skills'] ?? [];
+    }
+
+    public function getCandidateNameAttribute()
+    {
+        return $this->job_data['candidate_name'] ?? null;
+    }
+
+    public function getCandidateEmailAttribute()
+    {
+        return $this->job_data['candidate_email'] ?? null;
+    }
+
+    public function getCandidateDataAttribute()
+    {
+        return $this->job_data['candidate_data'] ?? [];
+    }
+
     /**
      * Helpers
      */
@@ -178,5 +175,25 @@ class JobApplication extends Model
     public function hasPdfs(): bool
     {
         return !empty($this->cover_letter_pdf_path) && !empty($this->resume_pdf_path);
+    }
+
+    public function extractions()
+    {
+        return $this->hasMany(JobExtraction::class);
+    }
+
+    public function scorings()
+    {
+        return $this->hasMany(JobScoring::class);
+    }
+
+    public function versions()
+    {
+        return $this->hasMany(JobApplicationVersion::class);
+    }
+
+    public function deduplication()
+    {
+        return $this->hasOne(JobDeduplication::class);
     }
 }

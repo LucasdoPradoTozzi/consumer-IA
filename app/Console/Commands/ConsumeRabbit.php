@@ -14,14 +14,15 @@ class ConsumeRabbit extends Command
      * @var string
      */
     protected $signature = 'worker:consume
-                            {--once : Process only one message and exit}';
+                            {--once : Process only one message and exit}
+                            {--timeout=50 : Maximum time in seconds to run (0 for unlimited)}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Consume messages from RabbitMQ queues (3 queues)';
+    protected $description = 'Consume messages from RabbitMQ queues (intake, mark-done, reprocess)';
 
     /**
      * Execute the console command.
@@ -32,19 +33,33 @@ class ConsumeRabbit extends Command
     public function handle(RabbitConsumerService $consumer): int
     {
         $queues = config('rabbitmq.queues');
+        $timeout = (int) $this->option('timeout');
+
+        $descriptions = [
+            'deduplication' => 'check for duplicates and store job',
+            'mark-job-done' => 'mark as manually applied',
+            'reproccess-job' => 'reprocess with feedback message',
+        ];
 
         $this->info('Starting RabbitMQ consumer...');
         $this->info('Host: ' . config('rabbitmq.host'));
         $this->info('Queues:');
-        $this->line('  • ' . $queues['process-jobs'] . ' (full processing)');
-        $this->line('  • ' . $queues['mark-job-done'] . ' (mark as applied)');
-        $this->line('  • ' . $queues['reproccess-job'] . ' (reprocess with message)');
+        foreach ($queues as $key => $queue) {
+            $desc = $descriptions[$key] ?? $key;
+            $this->line('  • ' . $queue . ' (' . $desc . ')');
+        }
         $this->info('Prefetch: ' . config('rabbitmq.prefetch_count'));
-        $this->info('Press Ctrl+C to stop');
+
+        if ($timeout > 0) {
+            $this->info("Timeout: {$timeout} seconds");
+        } else {
+            $this->info('Timeout: Unlimited (press Ctrl+C to stop)');
+        }
+
         $this->newLine();
 
         try {
-            $consumer->consume();
+            $consumer->consume($timeout);
 
             $this->info('Consumer stopped gracefully');
             return Command::SUCCESS;

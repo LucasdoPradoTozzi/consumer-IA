@@ -7,7 +7,7 @@ use InvalidArgumentException;
 class JobPayload
 {
     public function __construct(
-        public readonly string $jobId,
+        public readonly ?string $jobId,
         public readonly string $type,
         public readonly array $data,
         public readonly ?string $callbackUrl = null,
@@ -42,10 +42,6 @@ class JobPayload
      */
     public static function fromArray(array $data): self
     {
-        if (!isset($data['job_id']) || !is_string($data['job_id'])) {
-            throw new InvalidArgumentException('job_id is required and must be a string');
-        }
-
         if (!isset($data['type']) || !is_string($data['type'])) {
             throw new InvalidArgumentException('type is required and must be a string');
         }
@@ -55,7 +51,7 @@ class JobPayload
         }
 
         return new self(
-            jobId: $data['job_id'],
+            jobId: $data['job_id'] ?? null,
             type: $data['type'],
             data: $data['data'],
             callbackUrl: $data['callback_url'] ?? null,
@@ -72,7 +68,6 @@ class JobPayload
     public function toArray(): array
     {
         return [
-            'job_id' => $this->jobId,
             'type' => $this->type,
             'data' => $this->data,
             'callback_url' => $this->callbackUrl,

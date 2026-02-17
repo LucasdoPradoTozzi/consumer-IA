@@ -40,7 +40,7 @@ return [
             'description' => 'Balanced 14B model - ~8GB RAM',
         ],
         'high' => [
-            'model' => 'qwen2.5:32b',
+            'model' => 'qwen2.5vl:32b',
             'description' => 'Production 32B model - ~20GB RAM',
         ],
     ],

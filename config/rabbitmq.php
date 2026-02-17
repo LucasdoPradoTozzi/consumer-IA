@@ -27,15 +27,22 @@ return [
     | Queue Configuration
     |--------------------------------------------------------------------------
     |
-    | Multiple queues for different processing tasks:
-    | - process-jobs: Full job application processing (7-stage pipeline)
-    | - mark-job-done: Mark job as already applied (just update status)
-    | - reproccess-job: Reprocess job with additional message/feedback
+    | Queues consumed by the RabbitMQ consumer (worker:consume):
+    | - deduplication: Intake de novas vagas → salva JobApplication + JobExtraction
+    | - mark-job-done: Marca vaga como já aplicada (atualiza status)
+    | - reproccess-job: Reprocessa vaga com feedback adicional
+    |
+    | As etapas de extraction OCR, scoring, generation e email são processadas
+    | por batch commands via cron/scheduler (não por filas):
+    | - app:extract-pending-applications
+    | - app:score-pending-extractions
+    | - app:generate-pending-applications
+    | - app:send-pending-application-emails
     |
     */
 
     'queues' => [
-        'process-jobs' => env('RABBITMQ_QUEUE_PROCESS', 'process-jobs'),
+        'deduplication' => env('RABBITMQ_QUEUE_PROCESS', 'process-jobs'),
         'mark-job-done' => env('RABBITMQ_QUEUE_MARK_DONE', 'mark-job-done'),
         'reproccess-job' => env('RABBITMQ_QUEUE_REPROCESS', 'reproccess-job'),
     ],

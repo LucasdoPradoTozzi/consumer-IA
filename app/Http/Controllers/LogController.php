@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Redis;
 
 class LogController extends Controller
 {
@@ -124,6 +125,56 @@ class LogController extends Controller
         }
 
         return response()->json(['message' => 'Log file not found'], 404);
+    }
+
+    /**
+     * Get queue messages from Redis
+     */
+    public function queueMessages()
+    {
+        $queues = config('rabbitmq.queues');
+        $messages = [];
+
+        foreach ($queues as $queueKey => $queueName) {
+            $redisKey = "last_message_{$queueName}";
+
+            $message = Redis::get($redisKey);
+            $status = Redis::get("{$redisKey}_status");
+            $timestamp = Redis::get("{$redisKey}_timestamp");
+            $size = Redis::get("{$redisKey}_size");
+            $error = Redis::get("{$redisKey}_error");
+
+            if ($message) {
+                $messageData = json_decode($message, true);
+
+                $messages[] = [
+                    'queue' => $queueName,
+                    'queue_key' => $queueKey,
+                    'status' => $status,
+                    'timestamp' => $timestamp,
+                    'size' => $size ? (int)$size : 0,
+                    'error' => $error,
+                    'data' => $messageData,
+                    'has_data' => true
+                ];
+            } else {
+                $messages[] = [
+                    'queue' => $queueName,
+                    'queue_key' => $queueKey,
+                    'status' => 'no_messages',
+                    'timestamp' => null,
+                    'size' => 0,
+                    'error' => null,
+                    'data' => null,
+                    'has_data' => false
+                ];
+            }
+        }
+
+        return response()->json([
+            'messages' => $messages,
+            'timestamp' => now()->toIso8601String()
+        ]);
     }
 
     /**

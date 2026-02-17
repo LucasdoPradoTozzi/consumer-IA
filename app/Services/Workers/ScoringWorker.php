@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Services\Workers;
+
+use App\Models\JobApplication;
+use App\Models\JobExtraction;
+use App\Models\JobScoring;
+use App\Services\OllamaService;
+use App\Services\PromptBuilderService;
+use Illuminate\Support\Facades\Log;
+
+class ScoringWorker
+{
+    public function __construct(
+        private readonly OllamaService $ollama,
+        private readonly PromptBuilderService $promptBuilder,
+    ) {}
+
+    /**
+     * Score job compatibility
+     *
+     * @param JobApplication $jobApplication
+     * @return void
+     */
+    public function process(JobApplication $jobApplication): void
+    {
+        // Find extractions with data but no scoring
+        $extractionsWithoutScoring = $jobApplication->extractions()
+            ->whereNotNull('extraction_data')
+            ->whereDoesntHave('scorings')
+            ->get();
+
+        if ($extractionsWithoutScoring->isEmpty()) {
+            Log::info('[ScoringWorker] No extractions to score', [
+                'application_id' => $jobApplication->id,
+            ]);
+            return;
+        }
+
+        foreach ($extractionsWithoutScoring as $extraction) {
+            $this->processExtraction($jobApplication, $extraction);
+        }
+    }
+
+    private function processExtraction(JobApplication $jobApplication, JobExtraction $extraction): void
+    {
+        $startTime = microtime(true);
+        $jobData = $extraction->extraction_data ?? [];
+        $candidateProfile = config('candidate.profile')();
+
+        Log::info('[ScoringWorker] Starting scoring for extraction', [
+            'application_id' => $jobApplication->id,
+            'extraction_version' => $extraction->version_number,
+        ]);
+
+        try {
+            $prompt = $this->promptBuilder->buildScorePrompt($jobData, $candidateProfile);
+            $response = $this->ollama->generate($prompt);
+
+            if (!is_string($response)) {
+                $response = json_encode($response);
+            }
+
+            $data = $this->parseJsonResponse($response, (string) $jobApplication->id);
+
+            // Create scoring record
+            $jobApplication->scorings()->create([
+                'extraction_version_id' => $extraction->id,
+                'scoring_score' => $data['score'],
+                'scoring_data' => $data,
+            ]);
+
+            $duration = microtime(true) - $startTime;
+
+            Log::info('[ScoringWorker] Scoring completed for extraction', [
+                'job_id' => $jobApplication->id,
+                'extraction_version' => $extraction->version_number,
+                'score' => $data['score'],
+                'duration' => round($duration, 2),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[ScoringWorker] Scoring failed for extraction', [
+                'job_id' => $jobApplication->id,
+                'extraction_version' => $extraction->version_number,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Parse JSON response from LLM
+     */
+    private function parseJsonResponse(string $response, string $jobId): array
+    {
+        $trimmed = trim($response);
+        $start = strpos($trimmed, '{');
+        $end = strrpos($trimmed, '}');
+
+        if ($start === false || $end === false) {
+            throw new \Exception('No JSON found in response');
+        }
+
+        $json = substr($trimmed, $start, $end - $start + 1);
+        $data = json_decode($json, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception('Invalid JSON: ' . json_last_error_msg());
+        }
+
+        if (!isset($data['score']) || !isset($data['justification'])) {
+            throw new \Exception('Missing required fields in scoring response');
+        }
+
+        return $data;
+    }
+}

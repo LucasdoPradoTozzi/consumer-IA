@@ -203,6 +203,55 @@
                     </button>
                 </form>
                 @endif
+            <!-- Versions Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-layers"></i> Versões da Aplicação</h5>
+                </div>
+                <div class="card-body">
+                    <ul>
+                        @foreach($jobApplication->versions as $version)
+                            <li>
+                                <strong>Versão #{{ $version->version_number }}</strong> - Criado em: {{ $version->created_at->format('d/m/Y H:i:s') }}
+                                <br>
+                                <a href="{{ route('job-applications.version', [$jobApplication->id, $version->id]) }}" class="btn btn-sm btn-outline-info mt-1">Ver detalhes</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Extraction Versions Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-search"></i> Versões de Extração de Dados</h5>
+                </div>
+                <div class="card-body">
+                    <ul>
+                        @foreach($jobApplication->extractions as $extraction)
+                            <li>
+                                <strong>Versão #{{ $extraction->version_number }}</strong> - Criado em: {{ $extraction->created_at->format('d/m/Y H:i:s') }}
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Scoring Versions Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Versões de Score</h5>
+                </div>
+                <div class="card-body">
+                    <ul>
+                        @foreach($jobApplication->scorings as $scoring)
+                            <li>
+                                <strong>Score:</strong> {{ $scoring->scoring_score }} - Criado em: {{ $scoring->created_at->format('d/m/Y H:i:s') }}
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            </div>
 
                 @if(!$jobApplication->isCompleted())
                 <form action="{{ route('job-applications.mark-completed', $jobApplication) }}" method="POST" class="mb-2">

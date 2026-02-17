@@ -9,6 +9,38 @@ use Illuminate\Support\Facades\Storage;
 class PdfService
 {
     /**
+     * Gera PDF do currículo usando Blade e variáveis dinâmicas
+     *
+     * @param array $resumeConfigVars Variáveis para preencher o template
+     * @param string $applicationId Application ID para nome do arquivo
+     * @return string Caminho do PDF gerado
+     */
+    public function generateCurriculumPdf(array $resumeConfigVars, string $applicationId): string
+    {
+        Log::info('[PdfService] Iniciando generateCurriculumPdf', [
+            'applicationId' => $applicationId,
+            'resumeConfigVars' => $resumeConfigVars,
+        ]);
+        $template = $resumeConfigVars['template'] ?? config('curriculum.template', 'curriculum/base');
+        Log::info('[PdfService] Template selecionado para currículo', [
+            'template' => $template,
+        ]);
+        $candidate = $resumeConfigVars;
+        Log::info('[PdfService] Dados do candidato enviados para o Blade', [
+            'candidate' => $candidate,
+        ]);
+        $html = view($template, compact('candidate'))->render();
+        Log::info('[PdfService] HTML do currículo gerado', [
+            'html_preview' => mb_substr($html, 0, 500),
+        ]);
+        $filename = "curriculum_{$applicationId}";
+        $pdfPath = $this->generate($html, $filename);
+        Log::info('[PdfService] PDF do currículo gerado', [
+            'pdf_path' => $pdfPath,
+        ]);
+        return $pdfPath;
+    }
+    /**
      * Generate PDF from HTML content
      *
      * @param string $html HTML content to convert to PDF
@@ -77,7 +109,7 @@ class PdfService
      * @param string $coverLetter Cover letter text
      * @param array $jobData Job information
      * @param array $candidateProfile Candidate information
-     * @param string $jobId Job ID for filename
+     * @param string $applicationId Application ID for filename
      * @return string Path to generated PDF
      * @throws \Exception
      */
@@ -85,8 +117,15 @@ class PdfService
         string $coverLetter,
         array $jobData,
         array $candidateProfile,
-        string $jobId
+        string $applicationId
     ): string {
+        Log::info('[PdfService] Generating cover letter PDF', [
+            'coverLetter_type' => gettype($coverLetter),
+            'jobData_type' => gettype($jobData),
+            'candidateProfile_type' => gettype($candidateProfile),
+            'applicationId' => $applicationId,
+        ]);
+
         $candidateName = $candidateProfile['name'] ?? 'Candidate';
         $candidateEmail = $candidateProfile['email'] ?? '';
         $candidatePhone = $candidateProfile['phone'] ?? '';
@@ -159,7 +198,7 @@ class PdfService
 </html>
 HTML;
 
-        $filename = "cover_letter_{$jobId}";
+        $filename = "cover_letter_{$applicationId}";
         return $this->generate($html, $filename);
     }
 
@@ -168,14 +207,14 @@ HTML;
      *
      * @param string $resumeText Resume text
      * @param array $candidateProfile Candidate information
-     * @param string $jobId Job ID for filename
+     * @param string $applicationId Application ID for filename
      * @return string Path to generated PDF
      * @throws \Exception
      */
     public function generateResumePdf(
         string $resumeText,
         array $candidateProfile,
-        string $jobId
+        string $applicationId
     ): string {
         $candidateName = $candidateProfile['name'] ?? 'Candidate';
 
@@ -211,7 +250,7 @@ HTML;
 </html>
 HTML;
 
-        $filename = "resume_{$jobId}";
+        $filename = "resume_{$applicationId}";
         return $this->generate($html, $filename);
     }
 }
