@@ -5,7 +5,7 @@ namespace App\Services\Workers;
 use App\Models\JobApplication;
 use App\Models\JobApplicationVersion;
 use App\Models\JobScoring;
-use App\Services\OllamaService;
+use App\Services\LlmService;
 use App\Services\PromptBuilderService;
 use App\Services\PdfService;
 use Illuminate\Support\Facades\Log;
@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 class GenerationWorker
 {
     public function __construct(
-        private readonly OllamaService $ollama,
+        private readonly LlmService $llm,
         private readonly PromptBuilderService $promptBuilder,
         private readonly PdfService $pdfService,
     ) {}
@@ -61,6 +61,51 @@ class GenerationWorker
             'using_enriched_data' => $latestExtraction && $latestExtraction->extraction_data ? true : false,
         ]);
 
+        // If all fields except resume_path are filled, just generate PDF and mark as completed
+        if (
+            $version
+            && $version->cover_letter
+            && $version->email_subject
+            && $version->email_body
+            && $version->resume_data
+            && empty($version->resume_path)
+        ) {
+            Log::info('[GenerationWorker] All fields present except resume_path, generating PDF only', [
+                'version_id' => $version->id,
+            ]);
+            // Try to decode resume_data as JSON, fallback to array
+            $resumeConfig = null;
+            $resumeData = $version->resume_data;
+            if (is_string($resumeData)) {
+                $resumeConfig = json_decode($resumeData, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    $resumeConfig = [];
+                }
+            } elseif (is_array($resumeData)) {
+                $resumeConfig = $resumeData;
+            } else {
+                $resumeConfig = [];
+            }
+            $bridge = new \App\Services\CandidateProfileBridge();
+            $language = $jobApplication->extractions()->latest()->first()?->extraction_data['language'] ?? null;
+            $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
+            $mergedConfig = array_merge($baseConfig ?? [], $resumeConfig ?? []);
+            $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
+            $resumePdfPath = $this->pdfService->generateCurriculumPdf(
+                $normalizedConfig,
+                $jobApplication->id
+            );
+            $version->resume_path = $resumePdfPath;
+            $version->completed = true;
+            $version->save();
+            Log::info('[GenerationWorker] PDF generated and version marked as completed', [
+                'version_id' => $version->id,
+                'resume_path' => $resumePdfPath,
+            ]);
+            return;
+        }
+
+        // If all fields including resume_path are filled, just mark as completed if not already
         if (
             $version
             && $version->cover_letter
@@ -83,153 +128,60 @@ class GenerationWorker
             return;
         }
 
-        $coverLetter = null;
-        $resumeAdjustments = null;
-        $coverLetterPdfPath = null;
-        $resumePdfPath = null;
-
+        // NOVO FLUXO: Prompt unificado
         try {
             $startTime = microtime(true);
 
-            if (!$version || !$version->cover_letter) {
-                Log::info('[GenerationWorker] Building cover letter prompt');
-                // IMPORTANTE: Usar extractionData (dados limpos pela IA)
-                $coverLetterPrompt = $this->promptBuilder->buildCoverLetterPrompt($extractionData, $candidateProfile);
-                $coverLetterRaw = $this->ollama->generate($coverLetterPrompt);
-                $coverLetter = $this->extractContent($coverLetterRaw, 'cover letter');
-                Log::info('[GenerationWorker] Cover letter generated');
-            } else {
-                $coverLetter = $version->cover_letter;
+            Log::info('[GenerationWorker] Building unified application prompt');
+            $unifiedPrompt = $this->promptBuilder->buildUnifiedApplicationPrompt($extractionData, $candidateProfile, $language);
+            Log::info('[GenerationWorker] Unified prompt built', [
+                'prompt' => $unifiedPrompt,
+                'prompt_length' => strlen($unifiedPrompt),
+            ]);
+            $llmResponse = $this->llm->generateText($unifiedPrompt);
+            if (!is_string($llmResponse)) {
+                $llmResponse = json_encode($llmResponse);
+            }
+            $json = $this->parseJsonResponse($llmResponse);
+
+            $coverLetter = $json['cover_letter'] ?? null;
+            if (!empty($coverLetter)) {
+                $version->cover_letter = $coverLetter;
+            }
+            $emailSubject = $json['email_subject'] ?? null;
+            $emailBody = $json['email_body'] ?? null;
+            if (!empty($emailSubject)) {
+                $version->email_subject = $emailSubject;
             }
 
-            // Generate resume adjustments
-            $resumeConfig = null;
-            if (!$version || !$version->resume_data) {
-                Log::info('[GenerationWorker] Building resume adjustment prompt');
-                // Aqui já usamos o extractionData carregado no início
-                $resumePrompt = $this->promptBuilder->buildResumeAdjustmentPromptWithExamples($extractionData, $candidateProfile, $language);
-                Log::info('[GenerationWorker] Resume adjustment prompt built', [
-                    'prompt' => $resumePrompt,
-                    'prompt_length' => strlen($resumePrompt),
-                ]);
-                $resumeResponse = $this->ollama->generate($resumePrompt);
-                if (!is_string($resumeResponse)) {
-                    $resumeResponse = json_encode($resumeResponse);
-                }
-                // Extrair resume_config do JSON retornado pelo LLM
-                $resumeJson = json_decode($resumeResponse, true);
-                if (is_array($resumeJson) && isset($resumeJson['resume_config'])) {
-                    $resumeConfig = $resumeJson['resume_config'];
-                }
-                $resumeAdjustments = $this->extractContent($resumeResponse, 'resume adjustments');
-                if (!is_string($resumeAdjustments)) {
-                    $resumeAdjustments = json_encode($resumeAdjustments);
-                }
-                Log::info('[GenerationWorker] Resume adjustments extracted', [
-                    'length' => strlen($resumeAdjustments),
-                    'preview' => substr($resumeAdjustments, 0, 100),
-                    'resume_config' => $resumeConfig,
-                ]);
-            } else {
-                $resumeAdjustments = $version->resume_data;
-                $resumeConfig = $version->resume_config ?? null;
-                Log::info('[GenerationWorker] Using existing resume_data and resume_config from version', [
-                    'version_id' => $version->id,
-                    'resume_data_length' => is_string($resumeAdjustments) ? strlen($resumeAdjustments) : null,
-                    'resume_config' => $resumeConfig,
-                ]);
+            $emailBody = $json['email_body'] ?? null;
+            if (!empty($emailBody)) {
+                $version->email_body = $emailBody;
             }
 
-            // Generate PDFs if missing
-            if (!$version || !$version->resume_path) {
-                Log::info('[GenerationWorker] Generating PDFs');
-                
-                // PEGAR BASE DO JSON SEGURO (Língua correta) via Bridge
-                $bridge = new \App\Services\CandidateProfileBridge();
-                $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
-
-                // GARANTIA: Merge o config base com os ajustes da IA
-                $mergedConfig = array_merge($baseConfig ?? [], $resumeConfig ?? []);
-                
-                Log::info('[GenerationWorker] Dados mesclados para o currículo (via Bridge)', [
-                    'has_resume_config' => !empty($resumeConfig),
-                    'language' => $language,
-                    'is_pii_secure' => true
-                ]);
-
-                $coverLetterPdfPath = $this->pdfService->generateCoverLetterPdf(
-                    $coverLetter,
-                    $extractionData,
-                    $candidateProfile,
-                    $jobApplication->id
-                );
-
-                $resumePdfPath = $this->pdfService->generateCurriculumPdf(
-                    $mergedConfig,
-                    $jobApplication->id
-                );
-                
-                Log::info('[GenerationWorker] PDFs gerados com sucesso');
-            } else {
-                $resumePdfPath = $version->resume_path;
-                $coverLetterPdfPath = $version->cover_letter_pdf_path ?? null;
+            $resumeConfig = $json['resume_config'] ?? null;
+            if (!empty($resumeConfig)) {
+                $version->resume_data = json_encode($resumeConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             }
+            $resumeAdjustments = $resumeConfig ? json_encode($resumeConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : null;
 
-            // Generate email content
-            $emailSubject = null;
-            $emailBody = null;
-            if (!$version || !$version->email_subject || $version->email_subject === 'Application for ' . ($jobData['title'] ?? 'Position')) {
-                Log::info('[GenerationWorker] Building email application prompt');
-                // Usar extractionData para o e-mail também
-                $emailPrompt = $this->promptBuilder->buildEmailApplicationPrompt($extractionData, $candidateProfile, $language);
-                $emailResponse = $this->ollama->generate($emailPrompt);
-                
-                try {
-                    $emailData = $this->parseJsonResponse($emailResponse);
-                    $emailSubject = $emailData['subject'] ?? null;
-                    $emailBody = $emailData['body'] ?? null;
-                } catch (\Exception $e) {
-                    Log::warning('[GenerationWorker] Failed to parse email JSON, using fallback', ['error' => $e->getMessage()]);
-                    $emailSubject = 'Application for ' . ($jobData['title'] ?? 'Position');
-                    $emailBody = 'Please find attached my application materials.';
-                }
-
-                Log::info('[GenerationWorker] Email content generated', [
-                    'subject' => $emailSubject,
-                    'body_preview' => substr($emailBody, 0, 100),
-                ]);
-            } else {
-                $emailSubject = $version->email_subject;
-                $emailBody = $version->email_body;
-            }
+            // Gerar PDFs
+            $bridge = new \App\Services\CandidateProfileBridge();
+            $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
+            $mergedConfig = array_merge($baseConfig ?? [], $resumeConfig ?? []);
+            $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
+            $resumePdfPath = $this->pdfService->generateCurriculumPdf(
+                $normalizedConfig,
+                $jobApplication->id
+            );
+            $version->resume_path = $resumePdfPath;
 
             $allFieldsFilled = $coverLetter && $resumeAdjustments && $resumePdfPath && $emailSubject && $emailBody;
-            
-            if (!$version) {
-                $version = $jobApplication->versions()->create([
-                    'scoring_id' => $scoring->id,
-                    'version_number' => $versionNumber,
-                    'cover_letter' => $coverLetter,
-                    'email_subject' => $emailSubject,
-                    'email_body' => $emailBody,
-                    'resume_data' => is_string($resumeAdjustments) ? json_decode($resumeAdjustments, true) ?? $resumeAdjustments : $resumeAdjustments,
-                    'resume_config' => $resumeConfig, // PERSISTIR AQUI
-                    'resume_path' => $resumePdfPath,
-                    'email_sent' => false,
-                    'completed' => $allFieldsFilled ? true : false,
-                ]);
-            } else {
-                $version->cover_letter = $coverLetter;
-                $version->resume_data = is_string($resumeAdjustments) ? json_decode($resumeAdjustments, true) ?? $resumeAdjustments : $resumeAdjustments;
-                $version->resume_config = $resumeConfig; // PERSISTIR AQUI
-                $version->resume_path = $resumePdfPath;
-                $version->email_subject = $emailSubject;
-                $version->email_body = $emailBody;
-                if ($allFieldsFilled) {
-                    $version->completed = true;
-                }
-                $version->save();
+
+            if ($allFieldsFilled) {
+                $version->completed = true;
             }
+            $version->save();
         } catch (\Throwable $e) {
             Log::error('[GenerationWorker] Error in processScoring', [
                 'job_id' => $jobApplication->id,
@@ -238,36 +190,70 @@ class GenerationWorker
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
-                'cover_letter' => $coverLetter,
-                'resume_adjustments' => $resumeAdjustments,
-                'cover_letter_pdf_path' => $coverLetterPdfPath,
-                'resume_pdf_path' => $resumePdfPath,
             ]);
-            // Save partial version if any part was generated
-            if ($coverLetter || $resumeAdjustments || $resumePdfPath) {
-                if (!$version) {
-                    $version = $jobApplication->versions()->create([
-                        'scoring_id' => $scoring->id,
-                        'version_number' => $versionNumber,
-                        'cover_letter' => $coverLetter,
-                        'email_subject' => 'Application for ' . ($jobData['title'] ?? 'Position'),
-                        'email_body' => 'Please find attached my application materials.',
-                        'resume_data' => is_string($resumeAdjustments) ? json_decode($resumeAdjustments, true) ?? $resumeAdjustments : $resumeAdjustments,
-                        'resume_path' => $resumePdfPath,
-                        'email_sent' => false,
-                        'completed' => false,
-                    ]);
-                } else {
-                    $version->cover_letter = $coverLetter;
-                    $version->resume_data = is_string($resumeAdjustments) ? json_decode($resumeAdjustments, true) ?? $resumeAdjustments : $resumeAdjustments;
-                    $version->resume_path = $resumePdfPath;
-                    $version->save();
-                }
+            // Salva informações geradas mesmo em caso de erro
+            if (!isset($version) || !$version) {
+                $version = $jobApplication->versions()->create([
+                    'scoring_id' => $scoring->id,
+                    'version_number' => $versionNumber,
+                    'cover_letter' => $coverLetter ?? null,
+                    'email_subject' => $emailSubject ?? null,
+                    'email_body' => $emailBody ?? null,
+                    'resume_data' => $resumeAdjustments ?? null,
+                    'resume_config' => $resumeConfig ?? null,
+                    'email_sent' => false,
+                    'completed' => false,
+                ]);
+            } else {
+                if (!empty($coverLetter)) $version->cover_letter = $coverLetter;
+                if (!empty($emailSubject)) $version->email_subject = $emailSubject;
+                if (!empty($emailBody)) $version->email_body = $emailBody;
+                if (!empty($resumeAdjustments)) $version->resume_data = $resumeAdjustments;
+                if (!empty($resumeConfig)) $version->resume_config = $resumeConfig;
+                $version->save();
             }
             throw $e;
         }
     }
 
+    // Função de normalização para resume_config
+    private function normalizeResumeConfig(array $config): array
+    {
+        $defaults = [
+            'name' => '',
+            'subtitle' => '',
+            'age' => '',
+            'marital_status' => '',
+            'location' => '',
+            'phone' => '',
+            'phone_link' => '',
+            'email' => '',
+            'github' => '',
+            'github_display' => '',
+            'linkedin' => '',
+            'linkedin_display' => '',
+            'objective' => '',
+            'skills' => [],
+            'languages' => [],
+            'experience' => [],
+            'education' => [],
+            'projects' => [],
+            'certificates' => [],
+            'personal_info' => [],
+            'summary' => '',
+            'skills_categories' => [],
+            'certifications' => [],
+        ];
+        // Preencher campos faltantes
+        $normalized = array_merge($defaults, $config);
+        // Corrigir tipos
+        foreach (['skills', 'languages', 'experience', 'education', 'projects', 'certificates', 'skills_categories', 'certifications'] as $field) {
+            if (!isset($normalized[$field]) || !is_array($normalized[$field])) {
+                $normalized[$field] = [];
+            }
+        }
+        return $normalized;
+    }
 
     /**
      * Extract content from LLM response

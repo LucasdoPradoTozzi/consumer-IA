@@ -24,7 +24,8 @@
 13. [Envio de Email](#envio-de-email)
 14. [Currículo Dinâmico](#currículo-dinâmico)
 15. [Docker & Infraestrutura](#docker--infraestrutura)
-16. [Como Processar Vagas](#como-processar-vagas)
+16. [Privacidade e Segurança](#privacidade-e-segurança)
+17. [Como Processar Vagas](#como-processar-vagas)
 
 ---
 
@@ -35,11 +36,13 @@ A aplicação segue uma **arquitetura de pipeline em duas camadas**:
 ### Camada 1: Intake via RabbitMQ (fila)
 
 O consumer RabbitMQ (`worker:consume`) escuta **3 filas** e é responsável apenas por:
+
 - **Deduplicação + salvamento** de novas vagas no banco de dados
 - **Mark-job-done**: marcar vaga como já aplicada
 - **Reproccess-job**: reprocessar vaga com feedback adicional
 
 Ao receber uma nova vaga, o consumer cria:
+
 1. Um registro `JobApplication` com `status: pending`
 2. Um registro `JobExtraction` (versão 1) com `extraction_data` populado a partir dos dados da vaga
 
@@ -71,17 +74,17 @@ Quatro commands Artisan são agendados via cron e executam as etapas restantes d
 
 ## Stack Tecnológica
 
-| Componente       | Tecnologia                          |
-|:-----------------|:------------------------------------|
-| Framework        | Laravel 12 (PHP 8.2+)              |
-| Banco de Dados   | PostgreSQL                          |
-| Message Broker   | RabbitMQ (via `php-amqplib`)        |
-| IA / LLM         | Ollama (modelos locais)             |
-| OCR              | Ollama Vision (modelos multimodais) |
-| Cache / Lock     | Redis                               |
-| PDF              | DomPDF (via `barryvdh/laravel-dompdf`) |
-| Email            | Laravel Mail (SMTP)                 |
-| Container        | Docker / Docker Compose             |
+| Componente     | Tecnologia                             |
+| :------------- | :------------------------------------- |
+| Framework      | Laravel 12 (PHP 8.2+)                  |
+| Banco de Dados | PostgreSQL                             |
+| Message Broker | RabbitMQ (via `php-amqplib`)           |
+| IA / LLM       | Ollama (modelos locais)                |
+| OCR            | Ollama Vision (modelos multimodais)    |
+| Cache / Lock   | Redis                                  |
+| PDF            | DomPDF (via `barryvdh/laravel-dompdf`) |
+| Email          | Laravel Mail (SMTP)                    |
+| Container      | Docker / Docker Compose                |
 
 ---
 
@@ -157,70 +160,70 @@ Mensagem RabbitMQ → JobProcessorService.reprocessJob()
 
 ### `job_applications`
 
-| Coluna         | Tipo     | Descrição                                            |
-|:---------------|:---------|:-----------------------------------------------------|
-| `id`           | bigint   | PK auto-increment                                    |
-| `raw_message`  | json     | Mensagem original do RabbitMQ (sanitizada)           |
-| `job_data`     | json     | Dados da vaga (título, empresa, link, descrição etc) |
-| `status`       | string   | `pending`, `processing`, `completed`, `failed`       |
-| `created_at`   | timestamp|                                                       |
-| `updated_at`   | timestamp|                                                       |
+| Coluna        | Tipo      | Descrição                                            |
+| :------------ | :-------- | :--------------------------------------------------- |
+| `id`          | bigint    | PK auto-increment                                    |
+| `raw_message` | json      | Mensagem original do RabbitMQ (sanitizada)           |
+| `job_data`    | json      | Dados da vaga (título, empresa, link, descrição etc) |
+| `status`      | string    | `pending`, `processing`, `completed`, `failed`       |
+| `created_at`  | timestamp |                                                      |
+| `updated_at`  | timestamp |                                                      |
 
 **Relacionamentos**: `hasMany` → JobExtraction, JobScoring, JobApplicationVersion, JobDeduplication
 
 ### `job_deduplication`
 
-| Coluna              | Tipo      | Descrição                         |
-|:--------------------|:----------|:----------------------------------|
-| `id`                | bigint    | PK                                |
-| `hash`              | string    | Hash único (link ou conteúdo)     |
-| `source`            | string    | `link` ou `content`               |
-| `original_link`     | string?   | Link original da vaga             |
-| `original_content`  | text?     | Conteúdo original                 |
-| `job_application_id`| FK        | → job_applications                |
-| `first_seen_at`     | timestamp | Primeira vez que a vaga foi vista |
+| Coluna               | Tipo      | Descrição                         |
+| :------------------- | :-------- | :-------------------------------- |
+| `id`                 | bigint    | PK                                |
+| `hash`               | string    | Hash único (link ou conteúdo)     |
+| `source`             | string    | `link` ou `content`               |
+| `original_link`      | string?   | Link original da vaga             |
+| `original_content`   | text?     | Conteúdo original                 |
+| `job_application_id` | FK        | → job_applications                |
+| `first_seen_at`      | timestamp | Primeira vez que a vaga foi vista |
 
 ### `job_extractions`
 
-| Coluna              | Tipo    | Descrição                                         |
-|:--------------------|:--------|:--------------------------------------------------|
-| `id`                | bigint  | PK                                                |
-| `job_application_id`| FK      | → job_applications                                |
-| `version_number`    | integer | Versão da extração (1, 2, 3...)                   |
-| `extra_information` | text?   | Feedback adicional (reprocessamento)               |
-| `extraction_data`   | json?   | Dados extraídos (job_data + OCR se houver imagem) |
+| Coluna               | Tipo    | Descrição                                         |
+| :------------------- | :------ | :------------------------------------------------ |
+| `id`                 | bigint  | PK                                                |
+| `job_application_id` | FK      | → job_applications                                |
+| `version_number`     | integer | Versão da extração (1, 2, 3...)                   |
+| `extra_information`  | text?   | Feedback adicional (reprocessamento)              |
+| `extraction_data`    | json?   | Dados extraídos (job_data + OCR se houver imagem) |
 
 **Unique**: `(job_application_id, version_number)`
 **Relacionamentos**: `belongsTo` → JobApplication, `hasMany` → JobScoring
 
 ### `job_scorings`
 
-| Coluna                | Tipo    | Descrição                             |
-|:----------------------|:--------|:--------------------------------------|
-| `id`                  | bigint  | PK                                    |
-| `job_application_id`  | FK      | → job_applications                    |
-| `extraction_version_id`| FK     | → job_extractions                     |
-| `scoring_score`       | integer | Score 0-100                           |
-| `scoring_data`        | json    | Dados detalhados do scoring (LLM)     |
+| Coluna                  | Tipo    | Descrição                         |
+| :---------------------- | :------ | :-------------------------------- |
+| `id`                    | bigint  | PK                                |
+| `job_application_id`    | FK      | → job_applications                |
+| `extraction_version_id` | FK      | → job_extractions                 |
+| `scoring_score`         | integer | Score 0-100                       |
+| `scoring_data`          | json    | Dados detalhados do scoring (LLM) |
 
 **Relacionamentos**: `belongsTo` → JobApplication, JobExtraction; `hasMany` → JobApplicationVersion
 
 ### `job_application_versions`
 
-| Coluna              | Tipo    | Descrição                                    |
-|:--------------------|:--------|:---------------------------------------------|
-| `id`                | bigint  | PK                                           |
-| `job_application_id`| FK      | → job_applications                           |
-| `scoring_id`        | FK      | → job_scorings                               |
-| `version_number`    | integer | Versão dos materiais gerados                 |
-| `cover_letter`      | text    | Cover letter gerada pelo LLM                 |
-| `email_subject`     | string  | Assunto do email                             |
-| `email_body`        | text    | Corpo do email                               |
-| `resume_data`       | json    | Dados do currículo (JSON com seções)          |
-| `resume_path`       | string  | Caminho do PDF do currículo                  |
-| `email_sent`        | boolean | Se o email foi enviado                       |
-| `completed`         | boolean | Se a geração está completa (cover + resume)  |
-| `resume_config`     | json?   | Configuração dinâmica do template de currículo|
+| Coluna               | Tipo    | Descrição                                      |
+| :------------------- | :------ | :--------------------------------------------- |
+| `id`                 | bigint  | PK                                             |
+| `job_application_id` | FK      | → job_applications                             |
+| `scoring_id`         | FK      | → job_scorings                                 |
+| `version_number`     | integer | Versão dos materiais gerados                   |
+| `cover_letter`       | text    | Cover letter gerada pelo LLM                   |
+| `email_subject`      | string  | Assunto do email                               |
+| `email_body`         | text    | Corpo do email                                 |
+| `resume_data`        | json    | Dados do currículo (JSON com seções)           |
+| `resume_path`        | string  | Caminho do PDF do currículo                    |
+| `email_sent`         | boolean | Se o email foi enviado                         |
+| `completed`          | boolean | Se a geração está completa (cover + resume)    |
+| `resume_config`      | json?   | Configuração dinâmica do template de currículo |
 
 **Unique**: `(scoring_id, version_number)`
 
@@ -233,6 +236,7 @@ Mensagem RabbitMQ → JobProcessorService.reprocessJob()
 **Arquivo**: `app/Services/RabbitConsumerService.php`
 
 Responsável por:
+
 - Conectar-se ao RabbitMQ
 - Declarar e escutar as 3 filas configuradas
 - Rotear mensagens para o handler correto via `handleMessage()`
@@ -240,22 +244,24 @@ Responsável por:
 - Gerenciar shutdown graceful e reconexão
 
 **Filas escutadas**:
-| Fila                | Handler                                    |
+| Fila | Handler |
 |:--------------------|:-------------------------------------------|
-| `deduplication`     | `processJobApplication()` → `JobProcessorService.process()` |
-| `mark-job-done`     | `markJobDone()`                            |
-| `reproccess-job`    | `reprocessJob()`                           |
+| `deduplication` | `processJobApplication()` → `JobProcessorService.process()` |
+| `mark-job-done` | `markJobDone()` |
+| `reproccess-job` | `reprocessJob()` |
 
 ### `JobProcessorService`
 
 **Arquivo**: `app/Services/JobProcessorService.php`
 
 Responsável por:
+
 - Processar mensagens da fila de deduplicação
 - Criar `JobApplication` e `JobExtraction` no banco
 - Marcar jobs como "done" ou reprocessar com feedback
 
 **Métodos públicos**:
+
 - `process(JobPayload, queueName, rawMessage)` — Processa nova vaga
 - `markJobAsDone(jobId)` — Marca vaga como aplicada
 - `reprocessJob(jobId, message)` — Reprocessa vaga com feedback
@@ -269,6 +275,7 @@ Responsável por:
 Responsável por publicar mensagens nas filas RabbitMQ. Utilizado pelo command `job:process` para enviar vagas à fila de deduplicação.
 
 **Métodos**:
+
 - `sendToDeduplication(JobPayload)` — Publica na fila de deduplicação
 
 ### `OllamaService`
@@ -276,6 +283,7 @@ Responsável por publicar mensagens nas filas RabbitMQ. Utilizado pelo command `
 **Arquivo**: `app/Services/OllamaService.php`
 
 Interface com o servidor Ollama para:
+
 - Geração de texto (LLM)
 - Extração de texto de imagens (Vision/OCR)
 - Verificação de disponibilidade e modelos
@@ -284,13 +292,14 @@ Interface com o servidor Ollama para:
 
 **Arquivo**: `app/Services/PromptBuilderService.php`
 
-Constrói prompts estruturados para o Ollama a partir de templates configurados em `config/prompts.php`. Utilizado por `ScoringWorker` e `GenerationWorker`.
+Constrói prompts estruturados para o Ollama a partir de templates centralizados na nova configuração `config/prompts.php`. Isso substitui a lógica antiga de prompts "hardcoded".
 
 ### `PdfService`
 
 **Arquivo**: `app/Services/PdfService.php`
 
 Gera PDFs usando DomPDF:
+
 - Cover letter PDF (com dados da vaga e candidato)
 - Currículo PDF (a partir de template Blade dinâmico)
 
@@ -299,9 +308,11 @@ Gera PDFs usando DomPDF:
 **Arquivo**: `app/Services/EmailService.php`
 
 Envia emails de candidatura com:
+
 - Cover letter no corpo ou anexo
 - Currículo PDF anexado
 - Subject e body configuráveis
+- Email do remetente configurado via perfil do candidato (`config/candidate.php`)
 
 ---
 
@@ -368,24 +379,24 @@ Cada worker processa uma etapa específica do pipeline e é chamado pelos batch 
 
 ### Commands de Pipeline (batch)
 
-| Command                                | Descrição                                        | Lock                                    |
-|:---------------------------------------|:-------------------------------------------------|:----------------------------------------|
-| `app:extract-pending-applications`     | OCR de imagens pendentes                         | `extract-pending-applications-lock` 600s|
-| `app:score-pending-extractions`        | Scoring de extractions sem score                 | `score-pending-extractions-lock` 600s   |
-| `app:generate-pending-applications`    | Geração de materiais para vagas com score alto   | `generate-pending-applications-lock` 600s|
-| `app:send-pending-application-emails`  | Envio de emails pendentes (com `--limit`)        | `send-pending-application-emails-lock` 600s|
+| Command                               | Descrição                                      | Lock                                        |
+| :------------------------------------ | :--------------------------------------------- | :------------------------------------------ |
+| `app:extract-pending-applications`    | OCR de imagens pendentes                       | `extract-pending-applications-lock` 600s    |
+| `app:score-pending-extractions`       | Scoring de extractions sem score               | `score-pending-extractions-lock` 600s       |
+| `app:generate-pending-applications`   | Geração de materiais para vagas com score alto | `generate-pending-applications-lock` 600s   |
+| `app:send-pending-application-emails` | Envio de emails pendentes (com `--limit`)      | `send-pending-application-emails-lock` 600s |
 
 Todos usam `cache()->lock()` (Redis) para evitar concorrência.
 
 ### Commands de Infraestrutura
 
-| Command                                | Descrição                                        |
-|:---------------------------------------|:-------------------------------------------------|
-| `worker:consume [--once] [--timeout=N]`| Consome mensagens do RabbitMQ                    |
-| `worker:check`                         | Verifica saúde dos serviços (RabbitMQ, Ollama, DB, Redis) |
-| `rabbitmq:publish <queue>`             | Publica mensagem manualmente em uma fila         |
-| `job:process --job-data=JSON`          | Envia vaga para fila de deduplicação via CLI     |
-| `app:queue-status`                     | Status das filas do RabbitMQ                     |
+| Command                                 | Descrição                                                 |
+| :-------------------------------------- | :-------------------------------------------------------- |
+| `worker:consume [--once] [--timeout=N]` | Consome mensagens do RabbitMQ                             |
+| `worker:check`                          | Verifica saúde dos serviços (RabbitMQ, Ollama, DB, Redis) |
+| `rabbitmq:publish <queue>`              | Publica mensagem manualmente em uma fila                  |
+| `job:process --job-data=JSON`           | Envia vaga para fila de deduplicação via CLI              |
+| `app:queue-status`                      | Status das filas do RabbitMQ                              |
 
 ---
 
@@ -395,23 +406,7 @@ Todos usam `cache()->lock()` (Redis) para evitar concorrência.
 
 ```php
 'host'     => env('RABBITMQ_HOST', 'localhost'),
-'port'     => env('RABBITMQ_PORT', 5672),
-'user'     => env('RABBITMQ_USER', 'guest'),
-'password' => env('RABBITMQ_PASSWORD', 'guest'),
-'vhost'    => env('RABBITMQ_VHOST', '/'),
-
-'queues' => [
-    'deduplication' => env('RABBITMQ_QUEUE_PROCESS', 'process-jobs'),
-    'mark-job-done' => env('RABBITMQ_QUEUE_MARK_DONE', 'mark-job-done'),
-    'reproccess-job' => env('RABBITMQ_QUEUE_REPROCESS', 'reproccess-job'),
-],
-
-'prefetch_count'     => 1,
-'consumer_tag'       => 'laravel_consumer',
-'connection_timeout' => 3.0,
-'read_write_timeout' => 3.0,
-'heartbeat'          => 60,
-'keepalive'          => true,
+// ... (outras configurações de conexão e filas)
 ```
 
 ### `config/processing.php`
@@ -422,19 +417,29 @@ Todos usam `cache()->lock()` (Redis) para evitar concorrência.
 
 ### `config/ollama.php`
 
-Configuração do servidor Ollama (URL, perfis, modelos, timeouts).
+Configuração do servidor Ollama. Recém-atualizado para suportar **Perfies de Hardware**:
+
+- `low`: Modelo leve (7B)
+- `medium`: Modelo balanceado (14B)
+- `high`: Modelo de produção/inteligente (32B)
 
 ### `config/candidate.php`
 
-Perfil do candidato usado no scoring e geração (nome, email, skills, experiência etc).
+Loader seguro do perfil do candidato. Lê de `candidate-profile.json` (git-ignored) para proteger PII.
 
-### `config/prompts.php`
+### `config/prompts.php` (Novo)
 
-Templates de prompts usados pelo `PromptBuilderService` para scoring e geração.
+Centraliza todos os templates de prompt do sistema:
+
+- `extraction`: Extração de dados da vaga
+- `scoring`: Avaliação de compatibilidade
+- `cover_letter`: Geração de carta de apresentação
+- `resume_adjustment`: Adaptação de currículo
+- `email`: Geração de corpo de email
 
 ### `config/curriculum.php` / `config/curriculum_en.php`
 
-Configuração do currículo dinâmico (seções, dados, template Blade).
+Configuração do currículo dinâmico. Agora utiliza loaders para buscar dados do `config/candidate.php` em vez de ter dados hardcoded.
 
 ---
 
@@ -442,24 +447,7 @@ Configuração do currículo dinâmico (seções, dados, template Blade).
 
 **Arquivo**: `routes/console.php`
 
-Pipeline agendado a cada minuto:
-
-```
-1. app:extract-pending-applications   → OCR de imagens
-2. app:score-pending-extractions      → Scoring de compatibilidade
-3. app:generate-pending-applications  → Geração de materiais
-4. app:send-pending-application-emails → Envio de email
-5. worker:consume                      → Consumer RabbitMQ (intake)
-```
-
-Todos com `withoutOverlapping()` para evitar concorrência e `runInBackground()`.
-
-Logs salvos em `storage/logs/`:
-- `extract-pending.log`
-- `score-pending.log`
-- `generate-pending.log`
-- `send-pending-emails.log`
-- `worker-schedule.log`
+Pipeline agendado a cada minuto. Todos com `withoutOverlapping()` e `runInBackground()`.
 
 ---
 
@@ -467,108 +455,151 @@ Logs salvos em `storage/logs/`:
 
 **Arquivo**: `routes/web.php`
 
-| Rota                           | Descrição                          |
-|:-------------------------------|:-----------------------------------|
-| `/job-applications`            | Dashboard de vagas                 |
-| `/job-applications/{id}`       | Detalhes da vaga                   |
-| `/logs`                        | Visualizador de logs               |
-| `/curriculum/template`         | Preview do template de currículo   |
+Dashboard básico para monitoramento de vagas e logs.
 
 ---
 
 ## Integração com IA (Ollama)
 
+### Centralização de IA: LlmService
+
+Agora todas as requisições de IA passam pelo serviço centralizador `LlmService`.
+
+- O LlmService faz o roteamento para o provedor configurado em `LLM_PROVIDER` (`.env`).
+- Por padrão, todas as requisições vão para o Google AI Studio (`GoogleAiStudioService`).
+- Futuramente, será possível rotear por tipo de requisição ou alternar para Ollama facilmente.
+
+#### Exemplo de uso:
+
+```php
+$llm = app(\App\Services\LlmService::class);
+$resposta = $llm->generateText('Seu prompt aqui');
+```
+
+### `config/llm.php` (Novo)
+
+Configuração do provedor principal de IA:
+
+```php
+'provider' => env('LLM_PROVIDER', 'google'),
+```
+
+No `.env`:
+
+```
+LLM_PROVIDER=google
+```
+
+Valores possíveis: `google` (padrão) ou `ollama` (futuro).
+
+### Serviços de IA Disponíveis
+
+#### 1. Ollama (Local)
+
+- **LLM**: modelos variáveis conforme `OLLAMA_PROFILE` (.env). Recomendado `qwen2.5vl:32b` para produção (Profile High).
+- **Vision/OCR**: usa o mesmo modelo multimodal se suportado (qwen2.5-vl) ou llava para modelos menores.
+
+#### 2. Google AI Studio (Gemini)
+
+- **LLM**: Integração via API Gemini-Pro (Google AI Studio), configurável por `.env` e `config/googleai.php`.
+- **Uso**: Utilize a service `GoogleAiStudioService` para geração de texto ou integração com modelos Gemini.
+- **Configuração**: Veja seção [Configurações](#configuracoes) para detalhes de variáveis e endpoints.
+
+##### Exemplo de uso no Laravel:
+
+```php
+$service = app(\App\Services\GoogleAiStudioService::class);
+$result = $service->generateText('Seu prompt aqui');
+```
+
+### `config/googleai.php` (Novo)
+
+Configuração para integração com Google AI Studio (Gemini):
+
+```php
+'api_key'   => env('GOOGLEAI_API_KEY'),
+'endpoint'  => env('GOOGLEAI_ENDPOINT', 'https://generativelanguage.googleapis.com/v1beta/models'),
+'model'     => env('GOOGLEAI_MODEL', 'gemini-pro'),
+'timeout'   => env('GOOGLEAI_TIMEOUT', 30),
+```
+
+Adicione as seguintes variáveis ao seu `.env`:
+
+```
+GOOGLEAI_API_KEY=seu_token_google
+GOOGLEAI_MODEL=gemini-pro
+GOOGLEAI_TIMEOUT=30
+```
+
+**Service:**
+
+- Utilize `App\Services\GoogleAiStudioService` para consumir a API Gemini.
+
 ### Modelos usados
 
-- **LLM**: para scoring (análise de compatibilidade), geração de cover letter e dados do currículo
-- **Vision/OCR**: para extração de texto de imagens de vagas (multimodal)
+- **LLM**: modelos variáveis conforme `OLLAMA_PROFILE` (.env). Recomendado `qwen2.5vl:32b` para produção (Profile High).
+- **Vision/OCR**: usa o mesmo modelo multimodal se suportado (qwen2.5-vl) ou llava para modelos menores.
 
-### Fluxo de IA
+### Centralização de Prompts
 
-1. **Scoring**: `extraction_data` + perfil do candidato → prompt de scoring → Ollama → JSON `{score: 0-100, justification: "..."}`
-2. **Cover Letter**: dados da vaga + perfil + score → prompt de geração → Ollama → texto da cover letter
-3. **Resume Data**: dados da vaga + perfil → prompt de currículo → Ollama → JSON com seções do currículo
-4. **OCR**: imagem base64 → Ollama Vision → texto extraído
-
-**Os prompts NÃO foram alterados nesta refatoração.** Eles são mantidos em `config/prompts.php` e carregados pelo `PromptBuilderService`.
+Todos os prompts foram migrados para `config/prompts.php`, facilitando a manutenção e ajustes de engenharia de prompt sem tocar no código dos serviços.
 
 ---
 
 ## Geração de PDFs
 
-### Cover Letter PDF
-- Gerado por `PdfService.generateCoverLetterPdf()`
-- Template Blade com dados da vaga e candidato
-- Salvo em `storage/app/pdfs/`
+### Otimização para DomPDF
 
-### Currículo PDF
-- Gerado por `PdfService.generateCurriculumPdf()`
-- Template Blade dinâmico usando `resume_config` do `JobApplicationVersion`
-- Configuração base em `config/curriculum.php`
-- Salvo em `storage/app/pdfs/`
+O layout dos currículos (`base.blade.php`) foi refatorado para evitar o uso de Flexbox, garantindo compatibilidade total com o motor de renderização do `dompdf` e prevenindo problemas de alinhamento/quebra de página.
 
 ---
 
 ## Envio de Email
 
-- Utiliza `EmailService` com Laravel Mail (SMTP)
-- Subject e body configuráveis por vaga
-- PDFs anexados (cover letter + currículo)
-- Email do remetente configurado via perfil do candidato (`config/candidate.php`)
+Utiliza `EmailService` com Laravel Mail (SMTP).
 
 ---
 
 ## Currículo Dinâmico
 
-O sistema permite que o LLM adapte o currículo para cada vaga:
-1. `GenerationWorker` chama Ollama pedindo dados do currículo em JSON
-2. O JSON resultante é mesclado com a configuração base (`config/curriculum.php`)
-3. `PdfService.generateCurriculumPdf()` renderiza o template Blade com os dados combinados
-4. O campo `resume_config` do `JobApplicationVersion` guarda a configuração usada
+O sistema adapta o currículo para cada vaga usando IA, injetando os dados gerados em um template Blade seguro.
 
 ---
 
 ## Docker & Infraestrutura
 
+### Otimização para GPU AMD (ROCm) e Modelos Grandes
+
+O ambiente foi configurado para suportar inferência de modelos 32B com aceleração via GPU AMD Radeon (RDNA2+).
+
+**Configurações Importantes (`docker-compose.yml`)**:
+
+- **Memória Compartilhada**: `shm_size: 16gb` (essencial para evitar OOM em modelos grandes).
+- **Acesso ao Hardware**: Container roda como `privileged: true` e `user: root` para garantir acesso a `/dev/kfd` e `/dev/dri`.
+- **Compatibilidade RDNA2**: Variável `HSA_OVERRIDE_GFX_VERSION=10.3.0` injetada para suporte a GPUs consumer (ex: RX 6600 XT).
+- **Fallback Vulkan**: `OLLAMA_VULKAN=1` habilitado como alternativa ao ROCm.
+
 ### Serviços Docker
 
-| Container          | Serviço     | Porta |
-|:-------------------|:------------|:------|
-| `consumerIA-php`   | Laravel App | -     |
-| `consumerIA-postgres` | PostgreSQL | 5432  |
-| `consumerIA-rabbitmq` | RabbitMQ  | 5672, 15672 |
-| `consumerIA-redis` | Redis       | 6379  |
-| `consumerIA-ollama`| Ollama      | 11434 |
+| Container             | Serviço     | Porta       |
+| :-------------------- | :---------- | :---------- |
+| `consumerIA-php`      | Laravel App | -           |
+| `consumerIA-postgres` | PostgreSQL  | 5432        |
+| `consumerIA-rabbitmq` | RabbitMQ    | 5672, 15672 |
+| `consumerIA-redis`    | Redis       | 6379        |
+| `consumerIA-ollama`   | Ollama      | 11434       |
 
-### Commands Docker úteis
+---
 
-```bash
-# Verificar saúde dos serviços
-docker exec consumerIA-php php artisan worker:check
+## Privacidade e Segurança
 
-# Processar vagas manualmente
-docker exec consumerIA-php php artisan rabbitmq:publish process-jobs \
-  --job-title="Dev Laravel" --company="Empresa" --description="Vaga..."
+### Auditoria de PII (Personal Identifiable Information)
 
-# Consumer RabbitMQ (intake)
-docker exec consumerIA-php php artisan worker:consume --timeout=30
+Realizamos uma varredura completa para garantir que **nenhum dado sensível** seja commitado no repositório.
 
-# Pipeline batch manual (em ordem)
-docker exec consumerIA-php php artisan app:extract-pending-applications
-docker exec consumerIA-php php artisan app:score-pending-extractions
-docker exec consumerIA-php php artisan app:generate-pending-applications
-docker exec consumerIA-php php artisan app:send-pending-application-emails
-
-# Verificar estado no banco
-docker exec consumerIA-php php artisan tinker --execute="
-  \$ja = \App\Models\JobApplication::latest()->first();
-  echo 'ID: ' . \$ja->id . PHP_EOL;
-  echo 'Status: ' . \$ja->status . PHP_EOL;
-  echo 'Extractions: ' . \$ja->extractions()->count() . PHP_EOL;
-  echo 'Scorings: ' . \$ja->scorings()->count() . PHP_EOL;
-  echo 'Versions: ' . \$ja->versions()->count() . PHP_EOL;
-"
-```
+1.  **Remoção de Hardcoding**: Dados pessoais (nome, telefone, email, endereço) foram removidos de `config/curriculum.php` e `resources/views`.
+2.  **`candidate-profile.json`**: Criado arquivo local (adicionado ao `.gitignore`) para armazenar o perfil do candidato. O sistema carrega esses dados em tempo de execução.
+3.  **Sanitização de Logs**: Logs do Laravel não devem conter dados brutos de PII, apenas IDs de referência.
 
 ---
 
@@ -576,26 +607,9 @@ docker exec consumerIA-php php artisan tinker --execute="
 
 ### Via RabbitMQ (produção)
 
-1. Um sistema externo publica mensagem na fila `process-jobs` com payload:
-```json
-{
-  "type": "job_application",
-  "data": {
-    "job": {
-      "title": "Desenvolvedor Laravel",
-      "company": "Empresa XYZ",
-      "link": "https://example.com/vaga/123",
-      "description": "Requisitos..."
-    },
-    "candidate": {
-      "name": "João Silva",
-      "email": "joao@email.com"
-    }
-  }
-}
-```
-2. O consumer salva no banco e cria extraction
-3. O scheduler processa as etapas restantes automaticamente
+1. Um sistema externo publica mensagem na fila `process-jobs`.
+2. O consumer salva no banco e cria extraction.
+3. O scheduler processa as etapas restantes automaticamente.
 
 ### Via CLI (desenvolvimento/teste)
 
@@ -603,15 +617,3 @@ docker exec consumerIA-php php artisan tinker --execute="
 docker exec consumerIA-php php artisan job:process \
   --job-data='{"title":"Dev Laravel","company":"Empresa","link":"https://example.com/vaga","description":"Requisitos..."}'
 ```
-
-### Formato legado de mensagem
-
-O `RabbitConsumerService.transformLegacyMessageFormat()` aceita mensagens simples:
-```json
-{
-  "link": "https://example.com/vaga",
-  "email": "rh@empresa.com",
-  "job_info": {"title": "Dev", "company": "Empresa"}
-}
-```
-E as transforma automaticamente no formato `JobPayload` esperado.

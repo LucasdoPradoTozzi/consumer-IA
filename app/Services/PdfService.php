@@ -21,6 +21,19 @@ class PdfService
             'applicationId' => $applicationId,
             'resumeConfigVars' => $resumeConfigVars,
         ]);
+        Log::debug('[PdfService] Conteúdo enviado para o Blade', [
+            'applicationId' => $applicationId,
+            'resumeConfigVars_dump' => print_r($resumeConfigVars, true),
+        ]);
+        // Logar cada campo individualmente
+        foreach ($resumeConfigVars as $key => $value) {
+            Log::debug('[PdfService] Campo enviado para Blade', [
+                'applicationId' => $applicationId,
+                'campo' => $key,
+                'tipo' => gettype($value),
+                'valor' => is_array($value) ? print_r($value, true) : $value
+            ]);
+        }
         $template = $resumeConfigVars['template'] ?? config('curriculum.template', 'curriculum/base');
         Log::info('[PdfService] Template selecionado para currículo', [
             'template' => $template,
@@ -29,10 +42,24 @@ class PdfService
         Log::info('[PdfService] Dados do candidato enviados para o Blade', [
             'candidate' => $candidate,
         ]);
-        $html = view($template, compact('candidate'))->render();
-        Log::info('[PdfService] HTML do currículo gerado', [
-            'html_preview' => mb_substr($html, 0, 500),
-        ]);
+        try {
+            Log::debug('[PdfService] Iniciando renderização do Blade', [
+                'template' => $template,
+                'candidate_keys' => array_keys($candidate),
+            ]);
+            $html = view($template, compact('candidate'))->render();
+            Log::info('[PdfService] HTML do currículo gerado', [
+                'html_preview' => mb_substr($html, 0, 500),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[PdfService] Erro ao renderizar Blade', [
+                'applicationId' => $applicationId,
+                'resumeConfigVars_dump' => print_r($resumeConfigVars, true),
+                'exception_message' => $e->getMessage(),
+                'exception_trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
         $filename = "curriculum_{$applicationId}";
         $pdfPath = $this->generate($html, $filename);
         Log::info('[PdfService] PDF do currículo gerado', [

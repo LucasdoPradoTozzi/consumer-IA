@@ -5,14 +5,14 @@ namespace App\Services\Workers;
 use App\Models\JobApplication;
 use App\Models\JobExtraction;
 use App\Models\JobScoring;
-use App\Services\OllamaService;
+use App\Services\LlmService;
 use App\Services\PromptBuilderService;
 use Illuminate\Support\Facades\Log;
 
 class ScoringWorker
 {
     public function __construct(
-        private readonly OllamaService $ollama,
+        private readonly LlmService $llm,
         private readonly PromptBuilderService $promptBuilder,
     ) {}
 
@@ -55,7 +55,7 @@ class ScoringWorker
 
         try {
             $prompt = $this->promptBuilder->buildScorePrompt($jobData, $candidateProfile);
-            $response = $this->ollama->generate($prompt);
+            $response = $this->llm->generateText($prompt);
 
             if (!is_string($response)) {
                 $response = json_encode($response);

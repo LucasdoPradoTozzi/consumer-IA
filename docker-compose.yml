@@ -35,6 +35,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ${APP_NAME}-ollama
+    user: root
+    privileged: true
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -42,7 +44,14 @@ services:
     restart: unless-stopped
     networks:
       - worker-net
-    # Uncomment below to enable GPU support (NVIDIA)
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=10.3.0
+      - OLLAMA_VULKAN=1
+    # Enable GPU support (AMD ROCm)
+    mem_limit: 28g
+    devices:
+      - "/dev/kfd"
+      - "/dev/dri"
     # deploy:
     #   resources:
     #     reservations:
@@ -50,6 +59,7 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+    shm_size: 16gb
 
   # PostgreSQL Database
   postgres:

@@ -176,11 +176,9 @@
         <div class="section">
             <div class="section-title">Habilidades</div>
             <div class="divider"></div>
-            <ul>
-                @foreach($candidate['skills'] ?? [] as $skill)
-                <li>{{ $skill }}</li>
-                @endforeach
-            </ul>
+            <div class="skills-list" style="word-break: break-word; white-space: normal; font-size: 13px;">
+                {{ implode(', ', $candidate['skills'] ?? []) }}
+            </div>
         </div>
 
         <div class="section">

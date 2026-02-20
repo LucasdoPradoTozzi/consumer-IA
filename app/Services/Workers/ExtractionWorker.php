@@ -4,14 +4,14 @@ namespace App\Services\Workers;
 
 use App\Models\JobApplication;
 use App\Models\JobExtraction;
-use App\Services\OllamaService;
+use App\Services\LlmService;
 use App\Services\PromptBuilderService;
 use Illuminate\Support\Facades\Log;
 
 class ExtractionWorker
 {
     public function __construct(
-        private readonly OllamaService $ollama,
+        private readonly LlmService $llm,
         private readonly PromptBuilderService $promptBuilder,
     ) {}
 
@@ -27,7 +27,7 @@ class ExtractionWorker
         $pendingVersions = $jobApplication->extractions()
             ->where(function ($q) {
                 $q->whereNull('extraction_data')
-                  ->orWhereRaw("extraction_data->>'language' IS NULL");
+                    ->orWhereRaw("extraction_data->>'language' IS NULL");
             })
             ->get();
 
@@ -54,46 +54,41 @@ class ExtractionWorker
         ]);
 
         try {
-            // Handle image field - ensure it's a valid string
-            $imageBase64 = $jobData['image'] ?? null;
-            if (is_array($imageBase64)) {
-                $imageBase64 = !empty($imageBase64) ? reset($imageBase64) : null;
-            }
-
-            $extractedText = null;
-            if ($imageBase64 && is_string($imageBase64) && strlen($imageBase64) > 100) {
-                if ($this->isValidBase64($imageBase64)) {
-                    $extractedText = $this->extractTextFromImage($imageBase64, $jobApplication->id);
-
-                    Log::info('[ExtractionWorker] Text extracted from image', [
-                        'job_id' => $jobApplication->id,
-                        'text_length' => strlen($extractedText),
-                    ]);
-                } else {
-                    Log::warning('[ExtractionWorker] Invalid base64 image', [
-                        'job_id' => $jobApplication->id,
-                    ]);
-                }
-            }
-
-            // Prepare job data for structured extraction
+            // [IA OCR] Extração de texto de imagens temporariamente desabilitada
+            // Sempre preenche extraction_data, mesmo sem OCR
             $tempJobData = $jobData;
-            if ($extractedText) {
-                $tempJobData['description'] = ($jobData['description'] ?? '') . "\n\nExtracted from image:\n" . $extractedText;
+
+            // Garante que o prompt nunca será vazio
+            if (empty($tempJobData['description'])) {
+                $tempJobData['description'] = '[SEM DESCRIÇÃO]';
             }
 
-            // Call Ollama for structured extraction (includes language detection)
             $prompt = $this->promptBuilder->buildExtractionPrompt($tempJobData);
-            $response = $this->ollama->generate($prompt);
-            
+            if (empty(trim($prompt))) {
+                // fallback: não chama LLM, apenas salva os dados originais
+                $extractionData = $jobData;
+                $version->update([
+                    'extraction_data' => $extractionData,
+                ]);
+                Log::warning('[ExtractionWorker] Extraction skipped: prompt vazio', [
+                    'job_id' => $jobApplication->id,
+                    'version' => $version->version_number,
+                ]);
+                return;
+            }
+
+
+            $response = $this->llm->generateText($prompt);
+            Log::info('[ExtractionWorker] LLM raw response', ['response' => $response]);
+            if (!is_string($response)) {
+                Log::error('[ExtractionWorker] LLM response is not a string', ['type' => gettype($response), 'response' => $response]);
+                throw new \RuntimeException('LLM response is not a string');
+            }
             $structuredData = $this->parseJsonResponse($response);
             $extractedInfo = $structuredData['extracted_info'] ?? [];
 
             // Enhance job data with extracted information
             $extractionData = array_merge($jobData, $extractedInfo);
-            if ($extractedText) {
-                $extractionData['extracted_text'] = $extractedText;
-            }
 
             // Save to version
             $version->update([
@@ -123,33 +118,29 @@ class ExtractionWorker
     /**
      * Validate if string is valid base64
      */
-    private function isValidBase64(string $string): bool
-    {
-        if (empty($string)) {
-            return false;
-        }
+    // private function isValidBase64(string $string): bool
+    // {
+    //     if (empty($string)) {
+    //         return false;
+    //     }
+    //     // Check if it's valid base64
+    //     if (!preg_match('/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $string)) {
+    //         return false;
+    //     }
+    //     // Try to decode
+    //     $decoded = base64_decode($string, true);
+    //     return $decoded !== false && strlen($decoded) > 100;
+    // }
 
-        // Check if it's valid base64
-        if (!preg_match('/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $string)) {
-            return false;
-        }
-
-        // Try to decode
-        $decoded = base64_decode($string, true);
-        return $decoded !== false && strlen($decoded) > 100;
-    }
-
-    /**
-     * Extract text from base64 image using Ollama
-     */
-    private function extractTextFromImage(string $imageBase64, string $jobId): string
-    {
-        $prompt = "Extract all text from this image. Return only the text content, nothing else.";
-
-        $response = $this->ollama->generate($prompt, [$imageBase64]);
-
-        return trim($response);
-    }
+    // /**
+    //  * Extract text from base64 image using Ollama
+    //  */
+    // private function extractTextFromImage(string $imageBase64, string $jobId): string
+    // {
+    //     $prompt = "Extract all text from this image. Return only the text content, nothing else.";
+    //     $response = $this->ollama->generate($prompt, [$imageBase64]);
+    //     return trim($response);
+    // }
 
     /**
      * Parse JSON response from LLM

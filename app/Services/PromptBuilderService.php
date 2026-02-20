@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Exception;
+
 class PromptBuilderService
 {
   /**
@@ -18,7 +20,7 @@ class PromptBuilderService
     $lang = strtolower($language ?? 'pt');
     if ($lang === 'portuguese') $lang = 'pt';
     if ($lang === 'english') $lang = 'en';
-    
+
     // Default to 'pt' if not en
     if ($lang !== 'en') $lang = 'pt';
 
@@ -33,36 +35,36 @@ class PromptBuilderService
     $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
     $promptTemplate = config('prompts.resume_adjustment.prompt');
-    
+
     // Decidir qual exemplo incluir
     if ($lang === 'pt') {
-        $exemploDinamico = "Exemplo de preenchimento em português (deve ser usado como base):\n" . $examplePtJson;
+      $exemploDinamico = "Exemplo de preenchimento em português (deve ser usado como base):\n" . $examplePtJson;
     } else {
-        $exemploDinamico = "Example of filling in English (must be used as base):\n" . $exampleEnJson;
+      $exemploDinamico = "Example of filling in English (must be used as base):\n" . $exampleEnJson;
     }
 
     return str_replace([
-        '[EXEMPLO_DINAMICO]',
-        '{candidateProfile}',
-        '{jobData}'
+      '[EXEMPLO_DINAMICO]',
+      '{candidateProfile}',
+      '{jobData}'
     ], [
-        $exemploDinamico,
-        $candidateProfileJson,
-        $jobDataJson
+      $exemploDinamico,
+      $candidateProfileJson,
+      $jobDataJson
     ], $promptTemplate);
-}
+  }
 
-/**
- * Build email application prompt
- * Returns JSON with: { "subject": "string", "body": "string" }
- *
- * @param array $jobData Job information
- * @param array $candidateProfile Candidate profile data
- * @param string|null $language Language (pt, en)
- * @return string
- */
-public function buildEmailApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null): string
-{
+  /**
+   * Build email application prompt
+   * Returns JSON with: { "subject": "string", "body": "string" }
+   *
+   * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile data
+   * @param string|null $language Language (pt, en)
+   * @return string
+   */
+  public function buildEmailApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null): string
+  {
     $lang = strtolower($language ?? 'pt');
     if ($lang === 'portuguese') $lang = 'pt';
     if ($lang === 'english') $lang = 'en';
@@ -72,19 +74,19 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
     $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
     $promptTemplate = config('prompts.email.prompt');
-    
+
     $prompt = str_replace([
-        '{jobData}',
-        '{candidateProfile}',
-        '{language}'
+      '{jobData}',
+      '{candidateProfile}',
+      '{language}'
     ], [
-        $jobDataJson,
-        $candidateProfileJson,
-        $lang === 'en' ? 'Inglês' : 'Português'
+      $jobDataJson,
+      $candidateProfileJson,
+      $lang === 'en' ? 'Inglês' : 'Português'
     ], $promptTemplate);
 
     return $prompt;
-}
+  }
   /**
    * Build extraction prompt
    * Returns JSON with: { "extracted_info": object }
@@ -154,7 +156,26 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
     $candidateName = $candidateProfile['name'] ?? 'Candidate';
     $candidateSkills = $candidateProfile['skills'] ?? [];
     $candidateExperience = $candidateProfile['experience'] ?? '';
-    $candidateExperienceText = is_array($candidateExperience) ? 'Has professional experience' : ($candidateExperience ?: 'No experience specified');
+    $candidateSummary = $candidateProfile['summary'] ?? '';
+    $candidateSeniority = $candidateProfile['seniority'] ?? '';
+    $candidateEducation = $candidateProfile['education'] ?? [];
+    $candidateCertifications = $candidateProfile['certifications'] ?? [];
+    $candidateLanguages = $candidateProfile['languages'] ?? [];
+    $candidateLinks = $candidateProfile['links'] ?? [];
+
+    $candidateExperienceText = '';
+    if (is_array($candidateExperience)) {
+      foreach ($candidateExperience as $exp) {
+        if (isset($exp['company'], $exp['position'], $exp['period'])) {
+          $candidateExperienceText .= "- {$exp['position']} at {$exp['company']} ({$exp['period']})\n";
+        }
+      }
+      if (empty($candidateExperienceText)) {
+        $candidateExperienceText = 'Has professional experience';
+      }
+    } else {
+      $candidateExperienceText = $candidateExperience ?: 'No experience specified';
+    }
 
     // Flatten candidate skills
     $candidateSkillsFlat = [];
@@ -175,6 +196,42 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
     $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
     $candidateSkillsText = empty($candidateSkillsFlat) ? 'Not specified' : implode(', ', $candidateSkillsFlat);
 
+    // Education
+    $educationText = '';
+    if (is_array($candidateEducation)) {
+      foreach ($candidateEducation as $edu) {
+        if (isset($edu['degree'], $edu['institution'], $edu['period'])) {
+          $educationText .= "- {$edu['degree']} at {$edu['institution']} ({$edu['period']})\n";
+        }
+      }
+    }
+
+    // Certifications
+    $certificationsText = '';
+    if (is_array($candidateCertifications)) {
+      foreach ($candidateCertifications as $cert) {
+        $certificationsText .= "- {$cert}\n";
+      }
+    }
+
+    // Languages
+    $languagesText = '';
+    if (is_array($candidateLanguages)) {
+      foreach ($candidateLanguages as $lang) {
+        if (isset($lang['name'], $lang['level'])) {
+          $languagesText .= "- {$lang['name']}: {$lang['level']}\n";
+        }
+      }
+    }
+
+    // Links
+    $linksText = '';
+    if (is_array($candidateLinks)) {
+      foreach ($candidateLinks as $type => $url) {
+        $linksText .= "- {$type}: {$url}\n";
+      }
+    }
+
     $languageInstruction = $jobLanguage ? "\nLanguage of the job posting: {$jobLanguage}" : "";
     $promptTemplate = config('prompts.scoring.prompt');
 
@@ -185,7 +242,13 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
       '{jobDescription}',
       '{candidateName}',
       '{candidateSkillsText}',
-      '{candidateExperienceText}'
+      '{candidateExperienceText}',
+      '{candidateSummary}',
+      '{candidateSeniority}',
+      '{candidateEducation}',
+      '{candidateCertifications}',
+      '{candidateLanguages}',
+      '{candidateLinks}'
     ], [
       $languageInstruction,
       $jobTitle,
@@ -193,7 +256,13 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
       $jobDescription,
       $candidateName,
       $candidateSkillsText,
-      $candidateExperienceText
+      $candidateExperienceText,
+      $candidateSummary,
+      $candidateSeniority,
+      $educationText,
+      $certificationsText,
+      $languagesText,
+      $linksText
     ], $promptTemplate);
   }
 
@@ -359,5 +428,53 @@ public function buildEmailApplicationPrompt(array $jobData, array $candidateProf
       $message,
       $context
     ], $promptTemplate);
+  }
+
+  /**
+   * Build unified prompt for application materials (cover letter, email, resume) in a single LLM call
+   * Returns JSON with: { "cover_letter": string, "email_subject": string, "email_body": string, "resume_config": object }
+   * @param array $jobData
+   * @param array $candidateProfile
+   * @param string|null $language
+   * @return string
+   */
+  public function buildUnifiedApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null): string
+  {
+    $examplePt = config('curriculum.default_candidate');
+    $exampleEn = config('curriculum_en.default_candidate');
+
+    $examplePtJson = json_encode(['lang' => 'pt'] + $examplePt, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $exampleEnJson = json_encode(['lang' => 'en'] + $exampleEn, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+
+    // Detect language
+    $lang = strtolower($language ?? 'pt');
+    if ($lang === 'portuguese') $lang = 'pt';
+    if ($lang === 'english') $lang = 'en';
+    if ($lang !== 'en') $lang = 'pt';
+
+    $jobDataJson = json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    $exampleJson = $lang === 'en' ? $exampleEnJson : $examplePtJson;
+
+    $prompt = "Você é um assistente de IA que gera todos os materiais necessários para uma candidatura de emprego em uma única resposta.\n\n" .
+      "Informações da Vaga (jobData):\n" . $jobDataJson . "\n\n" .
+      "Perfil Completo do Candidato (candidateProfile):\n" . $candidateProfileJson . "\n\n" .
+      "Gere, em um único JSON, as seguintes chaves:\n" .
+      "- cover_letter: carta de apresentação personalizada para a vaga\n" .
+      "- email_subject: assunto do e-mail de candidatura\n" .
+      "- email_body: corpo do e-mail de candidatura\n" .
+      "- resume_config: objeto de configuração para preencher o currículo (template '" . ($lang === 'en' ? 'en' : 'default') . "')\n\n" .
+      "IMPORTANTE: Não altere nomes de campos, nem a estrutura dos arrays. Siga o exemplo exatamente.\n" .
+      "O JSON deve conter todas as chaves acima, sem texto extra.\n" .
+      "Responda no idioma: " . ($lang === 'en' ? 'Inglês' : 'Português') . ".\n\n" .
+      "Exemplo COMPLETO de resposta (resume_config deve ser idêntico ao exemplo abaixo):\n" . $exampleJson . "\n";
+
+    \Log::info('[PromptBuilder] Final prompt generated', [
+      'prompt' => mb_substr($prompt, 0, 1000) . (strlen($prompt) > 1000 ? '... (truncated)' : ''),
+    ]);
+
+    return $prompt;
   }
 }
