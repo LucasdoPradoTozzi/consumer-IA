@@ -30,12 +30,11 @@ class GenerationWorker
         }
 
         $version = $jobApplication->versions()->where('scoring_id', $scoring->id)->first();
+        $versionNumber = $scoring->versions()->count() + 1;
         Log::info('[GenerationWorker] Versão buscada para scoring', [
             'scoring_id' => $scoring->id,
             'version' => $version ? $version->id : null,
         ]);
-
-        $versionNumber = $scoring->versions()->count() + 1;
         Log::info('[GenerationWorker] Próximo version_number calculado', [
             'scoring_id' => $scoring->id,
             'version_number' => $versionNumber,
@@ -103,6 +102,25 @@ class GenerationWorker
                 'resume_path' => $resumePdfPath,
             ]);
             return;
+        }
+
+        // If we don't have a version yet, create one before proceeding
+        if (!$version) {
+            $version = $jobApplication->versions()->create([
+                'scoring_id' => $scoring->id,
+                'version_number' => $versionNumber,
+                'cover_letter' => null,
+                'email_subject' => null,
+                'email_body' => null,
+                'resume_data' => null,
+                'resume_config' => null,
+                'email_sent' => false,
+                'completed' => false,
+            ]);
+            Log::info('[GenerationWorker] Nova versão criada para scoring', [
+                'scoring_id' => $scoring->id,
+                'version_id' => $version->id,
+            ]);
         }
 
         // If all fields including resume_path are filled, just mark as completed if not already

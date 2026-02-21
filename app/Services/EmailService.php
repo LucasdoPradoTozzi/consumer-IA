@@ -426,7 +426,7 @@ HTML;
             ) {
                 $message->to($recipientEmail, $candidateName)
                     ->subject($subject)
-                    ->html($body);
+                    ->html(nl2br($body));
 
                 // Attach cover letter as text or PDF if path exists
                 if (file_exists($resumePath)) {

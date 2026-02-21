@@ -19,9 +19,10 @@ class GoogleAiStudioService
         $this->timeout = config('googleai.timeout', 30);
     }
 
-    public function generateText($prompt, $params = [])
+    public function generateText($prompt, $params = [], ?string $model = null)
     {
-        $url = $this->endpoint . "/{$this->model}:generateContent?key={$this->apiKey}";
+        $activeModel = $model ?? $this->model;
+        $url = $this->endpoint . "/{$activeModel}:generateContent?key={$this->apiKey}";
         $payload = array_merge([
             'contents' => [
                 ['parts' => [['text' => $prompt]]]

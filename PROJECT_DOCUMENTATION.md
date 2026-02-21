@@ -74,17 +74,17 @@ Quatro commands Artisan são agendados via cron e executam as etapas restantes d
 
 ## Stack Tecnológica
 
-| Componente     | Tecnologia                             |
-| :------------- | :------------------------------------- |
-| Framework      | Laravel 12 (PHP 8.2+)                  |
-| Banco de Dados | PostgreSQL                             |
-| Message Broker | RabbitMQ (via `php-amqplib`)           |
-| IA / LLM       | Ollama (modelos locais)                |
-| OCR            | Ollama Vision (modelos multimodais)    |
-| Cache / Lock   | Redis                                  |
-| PDF            | DomPDF (via `barryvdh/laravel-dompdf`) |
-| Email          | Laravel Mail (SMTP)                    |
-| Container      | Docker / Docker Compose                |
+| Componente     | Tecnologia                                              |
+| :------------- | :------------------------------------------------------ |
+| Framework      | Laravel 12 (PHP 8.2+)                                   |
+| Banco de Dados | PostgreSQL                                              |
+| Message Broker | RabbitMQ (via `php-amqplib`)                            |
+| IA / LLM       | Google AI Studio (Gemini) + Ollama (local), via LlmService orquestrador |
+| OCR            | Modelos multimodais via LlmService                      |
+| Cache / Lock   | Redis                                                   |
+| PDF            | DomPDF (via `barryvdh/laravel-dompdf`)                  |
+| Email          | Laravel Mail (SMTP)                                     |
+| Container      | Docker / Docker Compose                                 |
 
 ---
 
@@ -226,6 +226,58 @@ Mensagem RabbitMQ → JobProcessorService.reprocessJob()
 | `resume_config`      | json?   | Configuração dinâmica do template de currículo |
 
 **Unique**: `(scoring_id, version_number)`
+
+### `llm_providers`
+
+Registro dos provedores de IA disponíveis.
+
+| Coluna            | Tipo    | Descrição                                                  |
+| :---------------- | :------ | :--------------------------------------------------------- |
+| `id`              | bigint  | PK                                                         |
+| `slug`            | string  | Único: `google`, `ollama`                                  |
+| `name`            | string  | Nome de exibição                                           |
+| `is_active`       | boolean | Se o provedor está ativo                                   |
+| `priority`        | integer | Prioridade global (1 = preferido)                          |
+| `api_key_env_var` | string? | Nome da variável `.env` com a API key (ex: `GOOGLEAI_API_KEY`) |
+| `service_class`   | string  | Classe PHP de serviço (ex: `App\Services\GoogleAiStudioService`) |
+
+**Relacionamentos**: `hasMany` → LlmModel
+
+### `llm_models`
+
+Modelos individuais com capability, ranking e limites de quota.
+
+| Coluna              | Tipo    | Descrição                                           |
+| :------------------ | :------ | :-------------------------------------------------- |
+| `id`                | bigint  | PK                                                  |
+| `llm_provider_id`   | FK      | → `llm_providers`                                   |
+| `name`              | string  | Nome do modelo: `gemini-1.5-flash-latest`           |
+| `capability`        | string  | `text`, `image`, `multimodal`, `open-weight`        |
+| `ranking`           | integer | Prioridade dentro do capability (1 = melhor)        |
+| `is_active`         | boolean | Se o modelo está ativo                              |
+| `quota_per_minute`  | integer?| Máx requisições/minuto (null = sem limite)         |
+| `quota_per_day`     | integer?| Máx requisições/dia (null = sem limite)            |
+| `tokens_per_minute` | integer?| Uso futuro                                          |
+
+**Unique**: `(llm_provider_id, name)`
+**Relacionamentos**: `belongsTo` → LlmProvider, `hasMany` → LlmUsageLog
+
+### `llm_usage_logs`
+
+Log de cada chamada de LLM para controle de quotas e auditoria.
+
+| Coluna             | Tipo      | Descrição                              |
+| :----------------- | :-------- | :------------------------------------- |
+| `id`               | bigint    | PK                                     |
+| `llm_model_id`     | FK        | → `llm_models`                         |
+| `capability`       | string    | O que foi requisitado                  |
+| `response_time_ms` | integer   | Duração da chamada em ms               |
+| `success`          | boolean   | Se a chamada foi bem-sucedida          |
+| `error_message`    | text?     | Mensagem de erro se falhou             |
+| `metadata`         | json?     | Contexto extra (job_id etc.)           |
+| `called_at`        | timestamp | Quando a chamada foi feita (indexado)  |
+
+**Relacionamentos**: `belongsTo` → LlmModel
 
 ---
 
@@ -459,90 +511,94 @@ Dashboard básico para monitoramento de vagas e logs.
 
 ---
 
-## Integração com IA (Ollama)
+## Integração com IA (LLM Orchestration)
 
-### Centralização de IA: LlmService
+### Arquitetura de Orquestração
 
-Agora todas as requisições de IA passam pelo serviço centralizador `LlmService`.
+Todas as requisições de IA passam pelo **`LlmService`**, que automaticamente:
 
-- O LlmService faz o roteamento para o provedor configurado em `LLM_PROVIDER` (`.env`).
-- Por padrão, todas as requisições vão para o Google AI Studio (`GoogleAiStudioService`).
-- Futuramente, será possível rotear por tipo de requisição ou alternar para Ollama facilmente.
+1. **Seleciona o melhor modelo** baseado na capability solicitada (`text`, `image`, `multimodal`, `open-weight`)
+2. **Respeita prioridades** — tenta provedores na ordem de prioridade (Google primeiro, Ollama depois)
+3. **Controla quotas** — verifica limites por minuto/dia antes de chamar, faz fallback automático
+4. **Loga cada chamada** — registra em `llm_usage_logs` para auditoria e controle
 
-#### Exemplo de uso:
+#### Uso Básico:
 
 ```php
 $llm = app(\App\Services\LlmService::class);
+
+// Texto (default)
 $resposta = $llm->generateText('Seu prompt aqui');
+
+// Especificar capability
+$resposta = $llm->generateText('Prompt', [], 'multimodal');
+
+// Vision/Imagem
+$resposta = $llm->generateFromImage('Descreva a imagem', [$base64Image]);
 ```
 
-### `config/llm.php` (Novo)
+### Fluxo de Resolução de Modelo
 
-Configuração do provedor principal de IA:
+```
+LlmService::generateText(prompt, capability='text')
+    │
+    ▼
+resolveModel('text')
+    ├── Query llm_models WHERE capability='text' AND is_active=true
+    ├── JOIN llm_providers WHERE is_active=true
+    ├── ORDER BY provider.priority ASC, model.ranking ASC
+    └── Para cada candidato: isWithinQuota()?
+        ├── Sim → usa este modelo
+        └── Não → tenta o próximo
+    │
+    ▼
+dispatch(model, prompt)
+    ├── Google: model no URL via GoogleAiStudioService
+    └── Ollama: model no body via OllamaService
+    │
+    ▼
+logUsage() → salva em llm_usage_logs
+```
+
+### Provedor ↔ Service Class
+
+Cada provedor no banco tem um `service_class` que mapeia para a classe PHP concreta:
+
+| Provider | service_class | Como passa o model |
+|:---------|:-------------|:-------------------|
+| Google   | `App\Services\GoogleAiStudioService` | No URL: `/{model}:generateContent` |
+| Ollama   | `App\Services\OllamaService` | No body: `{"model": "..."}` |
+
+A API key é lida do `.env` via `api_key_env_var` no registro do provedor (nunca salva no banco).
+
+### `config/llm.php`
+
+Configuração mínima — modelos e provedores vivem no banco de dados:
 
 ```php
-'provider' => env('LLM_PROVIDER', 'google'),
+'default_capability' => 'text',
 ```
 
-No `.env`:
+Para popular os dados:
 
-```
-LLM_PROVIDER=google
-```
-
-Valores possíveis: `google` (padrão) ou `ollama` (futuro).
-
-### Serviços de IA Disponíveis
-
-#### 1. Ollama (Local)
-
-- **LLM**: modelos variáveis conforme `OLLAMA_PROFILE` (.env). Recomendado `qwen2.5vl:32b` para produção (Profile High).
-- **Vision/OCR**: usa o mesmo modelo multimodal se suportado (qwen2.5-vl) ou llava para modelos menores.
-
-#### 2. Google AI Studio (Gemini)
-
-- **LLM**: Integração via API Gemini-Pro (Google AI Studio), configurável por `.env` e `config/googleai.php`.
-- **Uso**: Utilize a service `GoogleAiStudioService` para geração de texto ou integração com modelos Gemini.
-- **Configuração**: Veja seção [Configurações](#configuracoes) para detalhes de variáveis e endpoints.
-
-##### Exemplo de uso no Laravel:
-
-```php
-$service = app(\App\Services\GoogleAiStudioService::class);
-$result = $service->generateText('Seu prompt aqui');
+```bash
+php artisan db:seed --class=LlmModelsSeeder
 ```
 
-### `config/googleai.php` (Novo)
+### `config/googleai.php`
 
-Configuração para integração com Google AI Studio (Gemini):
+Configuração base do Google AI Studio:
 
 ```php
 'api_key'   => env('GOOGLEAI_API_KEY'),
 'endpoint'  => env('GOOGLEAI_ENDPOINT', 'https://generativelanguage.googleapis.com/v1beta/models'),
-'model'     => env('GOOGLEAI_MODEL', 'gemini-pro'),
+'model'     => env('GOOGLEAI_MODEL', 'gemini-pro'),  // fallback se não houver modelo no DB
 'timeout'   => env('GOOGLEAI_TIMEOUT', 30),
 ```
 
-Adicione as seguintes variáveis ao seu `.env`:
-
-```
-GOOGLEAI_API_KEY=seu_token_google
-GOOGLEAI_MODEL=gemini-pro
-GOOGLEAI_TIMEOUT=30
-```
-
-**Service:**
-
-- Utilize `App\Services\GoogleAiStudioService` para consumir a API Gemini.
-
-### Modelos usados
-
-- **LLM**: modelos variáveis conforme `OLLAMA_PROFILE` (.env). Recomendado `qwen2.5vl:32b` para produção (Profile High).
-- **Vision/OCR**: usa o mesmo modelo multimodal se suportado (qwen2.5-vl) ou llava para modelos menores.
-
 ### Centralização de Prompts
 
-Todos os prompts foram migrados para `config/prompts.php`, facilitando a manutenção e ajustes de engenharia de prompt sem tocar no código dos serviços.
+Todos os prompts estão em `config/prompts.php`, facilitando manutenção sem tocar no código dos serviços.
 
 ---
 

@@ -15,10 +15,10 @@ class OllamaService
      * @return string Generated response
      * @throws \Exception
      */
-    public function generate(string $prompt, array $images = []): string
+    public function generate(string $prompt, array $images = [], ?string $model = null): string
     {
         $profile = config('ollama.profile');
-        $model = $this->getModelFromProfile($profile);
+        $model = $model ?? $this->getModelFromProfile($profile);
         $url = config('ollama.url');
         $timeout = config('ollama.timeout');
         $endpoint = config('ollama.endpoints.generate');
