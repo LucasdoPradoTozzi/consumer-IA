@@ -8,15 +8,7 @@ class CandidateProfileBridge
 
     public function __construct()
     {
-        $path = base_path('candidate-profile.json');
-        
-        if (!file_exists($path)) {
-            $this->profile = [];
-            return;
-        }
-
-        $json = file_get_contents($path);
-        $this->profile = json_decode($json, true) ?? [];
+        $this->profile = app(\App\Services\CandidateProfileService::class)->getProfileAsArray();
     }
 
     /**

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\JobApplicationController;
 use App\Http\Controllers\LogController;
+use App\Http\Controllers\CandidateProfileController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -41,4 +42,29 @@ Route::get('/curriculum', function () {
 Route::get('/curriculum-en', function () {
     $candidate = config('curriculum_en.default_candidate');
     return view('curriculum.base', compact('candidate'));
+});
+
+// Candidate Profile Management
+Route::prefix('candidate-profile')->name('candidate-profile.')->group(function () {
+    Route::get('/', [CandidateProfileController::class, 'index'])->name('index');
+    Route::get('/edit', [CandidateProfileController::class, 'edit'])->name('edit');
+    Route::put('/', [CandidateProfileController::class, 'update'])->name('update');
+});
+
+// Skills Management
+Route::prefix('skills')->name('skills.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\SkillController::class, 'index'])->name('index');
+    Route::post('/', [\App\Http\Controllers\SkillController::class, 'store'])->name('store');
+    Route::delete('/{skill}', [\App\Http\Controllers\SkillController::class, 'destroy'])->name('destroy');
+    Route::post('/types', [\App\Http\Controllers\SkillController::class, 'storeType'])->name('types.store');
+    Route::delete('/types/{type}', [\App\Http\Controllers\SkillController::class, 'destroyType'])->name('types.destroy');
+});
+
+// Language Management
+Route::prefix('languages')->name('languages.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\LanguageController::class, 'index'])->name('index');
+    Route::post('/', [\App\Http\Controllers\LanguageController::class, 'store'])->name('store');
+    Route::delete('/{language}', [\App\Http\Controllers\LanguageController::class, 'destroy'])->name('destroy');
+    Route::post('/levels', [\App\Http\Controllers\LanguageController::class, 'storeLevel'])->name('levels.store');
+    Route::delete('/levels/{level}', [\App\Http\Controllers\LanguageController::class, 'destroyLevel'])->name('levels.destroy');
 });

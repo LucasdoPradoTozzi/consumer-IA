@@ -279,6 +279,33 @@ Log de cada chamada de LLM para controle de quotas e auditoria.
 
 **Relacionamentos**: `belongsTo` → LlmModel
 
+### `candidate_profiles` (Novo)
+
+Tabela principal para armazenar os dados do candidato (antigo `candidate-profile.json`).
+
+| Coluna | Tipo | Descrição |
+| :--- | :--- | :--- |
+| `id` | bigint | PK |
+| `name` | string | Nome do candidato |
+| `email` | string | Email de contato |
+| `phone` | string | Telefone |
+| `summary` | text | Resumo profissional |
+| `seniority` | string | Nível de senioridade conjunta |
+| `linkedin` | string | Link do LinkedIn |
+| `github` | string | Link do Github |
+| `remote` | boolean | Aceita trabalho remoto |
+| `hybrid` | boolean | Aceita trabalho híbrido |
+| `onsite` | boolean | Aceita trabalho presencial |
+| `willing_to_relocate` | boolean | Disponibilidade para mudança |
+| `availability` | string | Disponibilidade para iniciar |
+
+**Relacionamentos**: `hasMany` → candidate_skills, candidate_experiences, candidate_educations, candidate_certifications, candidate_languages, candidate_locations, candidate_contract_types
+
+### `candidate_skills`, `candidate_experiences`, etc.
+
+Tabelas de apoio para estrutura relacional do candidato (1:N com `candidate_profiles`). 
+*Nota: A tabela `candidate_skills` armazena `experience_years` (inteiro) em vez de níveis em texto.*
+
 ---
 
 ## Services
@@ -364,7 +391,7 @@ Envia emails de candidatura com:
 - Cover letter no corpo ou anexo
 - Currículo PDF anexado
 - Subject e body configuráveis
-- Email do remetente configurado via perfil do candidato (`config/candidate.php`)
+- Email do remetente configurado via banco de dados através do `CandidateProfileService` (`config/candidate.php`)
 
 ---
 
@@ -475,9 +502,10 @@ Configuração do servidor Ollama. Recém-atualizado para suportar **Perfies de 
 - `medium`: Modelo balanceado (14B)
 - `high`: Modelo de produção/inteligente (32B)
 
-### `config/candidate.php`
+### `config/candidate.php` e `CandidateProfileService`
 
-Loader seguro do perfil do candidato. Lê de `candidate-profile.json` (git-ignored) para proteger PII.
+Configuração legada e serviço de acesso seguro aos dados do perfil do candidato.
+Historicamente lia de `candidate-profile.json`, mas agora age como um *Facade* em cima do `CandidateProfileService`, buscando os dados do banco de dados relacional e abstraindo a estrutura JSON esperada pelos LLMs.
 
 ### `config/prompts.php` (Novo)
 
@@ -639,11 +667,14 @@ O ambiente foi configurado para suportar inferência de modelos 32B com acelera�
 
 | Container             | Serviço     | Porta       |
 | :-------------------- | :---------- | :---------- |
-| `consumerIA-php`      | Laravel App | -           |
+| `consumerIA-php`      | Laravel App | 8888 (Local)|
 | `consumerIA-postgres` | PostgreSQL  | 5432        |
 | `consumerIA-rabbitmq` | RabbitMQ    | 5672, 15672 |
 | `consumerIA-redis`    | Redis       | 6379        |
 | `consumerIA-ollama`   | Ollama      | 11434       |
+
+> [!NOTE]
+> The application is accessible locally at `http://localhost:8888`.
 
 ---
 
@@ -654,8 +685,12 @@ O ambiente foi configurado para suportar inferência de modelos 32B com acelera�
 Realizamos uma varredura completa para garantir que **nenhum dado sensível** seja commitado no repositório.
 
 1.  **Remoção de Hardcoding**: Dados pessoais (nome, telefone, email, endereço) foram removidos de `config/curriculum.php` e `resources/views`.
-2.  **`candidate-profile.json`**: Criado arquivo local (adicionado ao `.gitignore`) para armazenar o perfil do candidato. O sistema carrega esses dados em tempo de execução.
-3.  **Sanitização de Logs**: Logs do Laravel não devem conter dados brutos de PII, apenas IDs de referência.
+2.  **`CandidateProfileService`**: Substituiu o antigo arquivo `candidate-profile.json`. O perfil do candidato agora é gerenciado através do banco de dados (tabelas `candidate_*`) e editado através da interface web, com o serviço garantindo acesso seguro a esses dados internamente.
+3.  **Schema Relacional de Experiências e Skills**: Refatoramos o armazenamento para utilizar relações robustas:
+    - **Unified Skills**: As tabelas `skill_types` e `skills` centralizam todas as tecnologias e competências. `CandidateSkill` e `CandidateExperience` agora referenciam estas tabelas.
+    - **Achievements**: A tabela `candidate_achievements` armazena as conquistas de cada experiência de forma relacional ($1:N$).
+    - **N:N Technologies**: Experiências agora usam uma tabela pivô `candidate_experience_skill` para vincular tecnologias.
+4.  **Sanitização de Logs**: Logs do Laravel não devem conter dados brutos de PII, apenas IDs de referência.
 
 ---
 
