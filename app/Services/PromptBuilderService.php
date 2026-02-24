@@ -446,7 +446,6 @@ class PromptBuilderService
     $examplePtJson = json_encode(['lang' => 'pt'] + $examplePt, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     $exampleEnJson = json_encode(['lang' => 'en'] + $exampleEn, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
-
     // Detect language
     $lang = strtolower($language ?? 'pt');
     if ($lang === 'portuguese') $lang = 'pt';
@@ -457,19 +456,23 @@ class PromptBuilderService
     $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
     $exampleJson = $lang === 'en' ? $exampleEnJson : $examplePtJson;
+    $template = $lang === 'en' ? 'en' : 'default';
+    $languageLabel = $lang === 'en' ? 'Inglês' : 'Português';
 
-    $prompt = "Você é um assistente de IA que gera todos os materiais necessários para uma candidatura de emprego em uma única resposta.\n\n" .
-      "Informações da Vaga (jobData):\n" . $jobDataJson . "\n\n" .
-      "Perfil Completo do Candidato (candidateProfile):\n" . $candidateProfileJson . "\n\n" .
-      "Gere, em um único JSON, as seguintes chaves:\n" .
-      "- cover_letter: carta de apresentação personalizada para a vaga\n" .
-      "- email_subject: assunto do e-mail de candidatura\n" .
-      "- email_body: corpo do e-mail de candidatura\n" .
-      "- resume_config: objeto de configuração para preencher o currículo (template '" . ($lang === 'en' ? 'en' : 'default') . "')\n\n" .
-      "IMPORTANTE: Não altere nomes de campos, nem a estrutura dos arrays. Siga o exemplo exatamente.\n" .
-      "O JSON deve conter todas as chaves acima, sem texto extra.\n" .
-      "Responda no idioma: " . ($lang === 'en' ? 'Inglês' : 'Português') . ".\n\n" .
-      "Exemplo COMPLETO de resposta (resume_config deve ser idêntico ao exemplo abaixo):\n" . $exampleJson . "\n";
+    $promptTemplate = config('prompts.unified_application.prompt');
+    $prompt = str_replace([
+      '{jobData}',
+      '{candidateProfile}',
+      '{template}',
+      '{language}',
+      '{exampleJson}'
+    ], [
+      $jobDataJson,
+      $candidateProfileJson,
+      $template,
+      $languageLabel,
+      $exampleJson
+    ], $promptTemplate);
 
     \Log::info('[PromptBuilder] Final prompt generated', [
       'prompt' => mb_substr($prompt, 0, 1000) . (strlen($prompt) > 1000 ? '... (truncated)' : ''),

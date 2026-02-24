@@ -1,9 +1,9 @@
 <?php
 
 return [
-    // Prompt templates for each field
-    'cover_letter' => [
-        'prompt' => "You are an AI assistant that writes professional cover letters for job applications.
+  // Prompt templates for each field
+  'cover_letter' => [
+    'prompt' => "You are an AI assistant that writes professional cover letters for job applications.
         Job Details:
         - Position: {jobTitle}
         - Company: {company}
@@ -27,18 +27,18 @@ return [
         }
 
         Return ONLY the JSON object, no additional text.",
-    ],
+  ],
 
 
-    'email' => [
-        'prompt' => "Você é um assistente de IA que escreve e-mails profissionais para candidaturas de emprego.\n\nDados do Candidato:\n{candidateProfile}\n\nVaga:\n{jobData}\n\nEscreva um assunto e um corpo de e-mail personalizados para esta vaga. O e-mail deve ser profisisonal, curto e despertar o interesse do recrutador. Use o idioma: {language}.\n\nRetorne apenas um JSON com o seguinte formato:\n{\n  \"subject\": \"...\",\n  \"body\": \"...\"\n}",
-    ],
+  'email' => [
+    'prompt' => "Você é um assistente de IA que escreve e-mails profissionais para candidaturas de emprego.\n\nDados do Candidato:\n{candidateProfile}\n\nVaga:\n{jobData}\n\nEscreva um assunto e um corpo de e-mail personalizados para esta vaga. O e-mail deve ser profisisonal, curto e despertar o interesse do recrutador. Use o idioma: {language}.\n\nRetorne apenas um JSON com o seguinte formato:\n{\n  \"subject\": \"...\",\n  \"body\": \"...\"\n}",
+  ],
 
-    'resume_adjustment' => [
-        'prompt' => "Você receberá os dados de um candidato e de uma vaga. Seu objetivo é gerar um JSON de configuração para preencher um template de currículo (pt ou en). O JSON deve conter a chave 'lang' (pt ou en) e todas as variáveis necessárias para preencher o currículo. Responda apenas com o JSON.\n\n[EXEMPLO_DINAMICO]\n\nInformações do Candidato (DADOS REAIS):\n{candidateProfile}\n\nInformações da Vaga (VAGA ALVO):\n{jobData}",
-    ],
-    'resume_optimization' => [
-        'prompt' => "You are an AI assistant that helps optimize resumes for specific job applications.
+  'resume_adjustment' => [
+    'prompt' => "Você receberá os dados de um candidato e de uma vaga. Seu objetivo é gerar um JSON de configuração para preencher um template de currículo (pt ou en). O JSON deve conter a chave 'lang' (pt ou en) e todas as variáveis necessárias para preencher o currículo. Responda apenas com o JSON.\n\n[EXEMPLO_DINAMICO]\n\nInformações do Candidato (DADOS REAIS):\n{candidateProfile}\n\nInformações da Vaga (VAGA ALVO):\n{jobData}",
+  ],
+  'resume_optimization' => [
+    'prompt' => "You are an AI assistant that helps optimize resumes for specific job applications.
         Job Requirements:
         - Position: {jobTitle}
         - Description: {jobDescription}
@@ -66,10 +66,10 @@ return [
         }
 
         Return ONLY the JSON object, no additional text.",
-    ],
-    
-    'classification' => [
-        'prompt' => "You are an AI assistant that analyzes job postings to determine if they are relevant for application.
+  ],
+
+  'classification' => [
+    'prompt' => "You are an AI assistant that analyzes job postings to determine if they are relevant for application.
       Analyze the following job posting and determine if it is a real, legitimate job opportunity that should be considered for application.
 
       {context}
@@ -86,71 +86,107 @@ return [
       }
 
       Return ONLY the JSON object, no additional text.",
-    ],
-    
-    'scoring' => [
-        'prompt' => "You are an AI assistant that scores job-candidate matches.{languageInstruction}
-      Job Information:
+  ],
+
+  'scoring' => [
+    'prompt' => "You are an AI assistant specialized in evaluating job-candidate compatibility.
+
+    {languageInstruction}
+
+    Job Information:
+    - Title: {jobTitle}
+    - Required Skills: {skillsText}
+    - Description: {jobDescription}
+
+    Candidate Profile:
+    - Name: {candidateName}
+    - Skills: {candidateSkillsText}
+    - Experience: {candidateExperienceText}
+
+    Evaluation Rules:
+
+    1) Compare job required skills against candidate skills explicitly.
+    2) Identify:
+      - Matching skills
+      - Missing important skills
+      - Relevant experience alignment
+    3) Weigh technical skills more heavily than soft skills.
+    4) Penalize missing critical skills explicitly mentioned in the job description.
+    5) Do NOT invent skills or experience.
+    6) Base the score strictly on the provided data.
+
+    Scoring Guidelines:
+    - 0-30: Lacks most critical skills.
+    - 31-60: Partial match but missing important requirements.
+    - 61-80: Strong match with minor gaps.
+    - 81-100: Excellent alignment with required skills and experience.
+
+    Return a valid JSON object with EXACTLY this structure:
+
+    {
+      \"score\": 0,
+      \"matched_skills\": [\"...\"],
+      \"missing_skills\": [\"...\"],
+      \"strengths\": [\"...\"],
+      \"gaps\": [\"...\"],
+      \"justification\": \"Concise technical explanation of how the score was calculated.\"
+    }
+
+    Return ONLY the JSON object.
+    Do not include explanations outside JSON.",
+  ],
+
+  'extraction' => [
+    'prompt' => "You are an AI assistant specialized in extracting structured information from job postings.
+
+      Job Details:
       - Title: {jobTitle}
-      - Required Skills: {skillsText}
+      - Company: {company}
       - Description: {jobDescription}
 
-      Candidate Profile:
-      - Name: {candidateName}
-      - Skills: {candidateSkillsText}
-      - Experience: {candidateExperienceText}
+      Your task is to extract structured information strictly based on the provided job description.
 
-      Analyze how well this candidate matches the job requirements and provide a compatibility score from 0 to 100, where:
-      - 0-30: Poor match (lacks critical skills or experience)
-      - 31-60: Fair match (has some relevant skills but missing key requirements)
-      - 61-80: Good match (meets most requirements with minor gaps)
-      - 81-100: Excellent match (highly qualified, meets or exceeds all requirements)
+      Extraction rules:
+      - Do NOT invent information.
+      - If a field is not explicitly mentioned, return null.
+      - Normalize required_skills into a clean array of concise skill keywords.
+      - Include only relevant professional skills (technical or core competencies).
+      - Detect the language based on the job description text.
 
-      Return your response as a valid JSON object with this exact structure:
+      Additionally:
+      Provide a 'company_data' object using only reliable prior knowledge.
+      - If you are not confident about specific company details, return null for those fields.
+      - Do NOT fabricate recent news or unverifiable claims.
+
+      Return a valid JSON object with EXACTLY this structure:
+
       {
-        \"score\": 75,
-        \"justification\": \"Detailed explanation of the score, highlighting matching skills and gaps\"
-      }
-
-      Return ONLY the JSON object, no additional text.",
-    ],
-    
-    'extraction' => [
-        'prompt' => "You are an AI assistant that extracts structured information from job postings.
-        Job Details:
-        - Title: {jobTitle}
-        - Company: {company}
-        - Description: {jobDescription}
-
-        Extract the following fields from the job posting:
-        - Job Title
-        - Company Name
-        - Job Description
-        - Required Skills
-        - Location (if available)
-        - Salary (if available)
-        - Employment Type (e.g., full-time, part-time, contract)
-        - Language of the job posting (Portuguese or English)
-
-        Return your response as a valid JSON object with this exact structure:
-        {
-          \"extracted_info\": {
-            \"title\": \"...\",
-            \"company\": \"...\",
-            \"description\": \"...\",
-            \"required_skills\": [\"...\", \"...\"],
-            \"location\": \"...\",
-            \"salary\": \"...\",
-            \"employment_type\": \"...\",
-            \"language\": \"portuguese\" or \"english\"
+        \"extracted_info\": {
+          \"title\": \"...\",
+          \"company\": \"...\",
+          \"description\": \"...\",
+          \"required_skills\": [\"...\", \"...\"],
+          \"location\": \"...\",
+          \"salary\": \"...\",
+          \"employment_type\": \"...\",
+          \"language\": \"portuguese\" or \"english\",
+          \"company_data\": {
+            \"industry\": \"...\",
+            \"company_size\": \"...\",
+            \"headquarters\": \"...\",
+            \"website\": \"...\",
+            \"reputation_summary\": \"...\"
           }
         }
+      }
 
-        Return ONLY the JSON object, no additional text.",
-    ],
-    
-    'reclassification' => [
-        'prompt' => "You are an AI assistant that analyzes job postings to determine if they are relevant for application.
+      If information is unavailable, use null.
+      Return ONLY the JSON object.
+      Do not include explanations.",
+  ],
+
+  'reclassification' => [
+    'prompt' => "You are an AI assistant that analyzes job postings to determine if they are relevant for application.
         This job was previously evaluated with status: \"{originalStatus}\"
 
         The user has requested reprocessing with this additional context:
@@ -172,5 +208,71 @@ return [
         }
 
         Return ONLY the JSON object, no additional text.",
-    ],
+  ],
+
+    'unified_application' => [
+    'prompt' => "You are an AI assistant specialized in generating strategically tailored job application materials.
+
+      Job Information (jobData):
+      {jobData}
+
+      Full Candidate Profile (candidateProfile):
+      {candidateProfile}
+
+      Your task is to generate a SINGLE valid JSON object containing:
+      - cover_letter
+      - email_subject
+      - email_body
+      - resume_config
+
+      GLOBAL STRATEGY:
+
+      First, internally analyze the job description and identify:
+      - Core technical requirements
+      - Secondary/bonus skills
+      - Main responsibilities
+      - Keywords and terminology emphasized
+
+      Do NOT output this analysis.
+
+      Then generate all materials aligned with those priorities.
+
+      IMPORTANT STRUCTURE RULES:
+
+      1) You MUST keep the exact JSON structure and field names as shown in the example.
+      2) You MUST keep the same array structure and object keys inside resume_config.
+      3) You MUST NOT invent experience, technologies, or achievements not present in candidateProfile.
+      4) If something is not supported by candidateProfile, do not fabricate it.
+
+      RESUME ADAPTATION RULES:
+      - Prioritize relevant experiences and technologies.
+      - Reorder bullet points strategically.
+      - Adjust wording to reflect job terminology.
+      - Emphasize measurable impact when possible.
+      - Keep structure identical to exampleJson.
+
+      COVER LETTER RULES:
+      - Strong, direct opening referencing the role.
+      - Focus only on the most relevant qualifications.
+      - Reinforce alignment with job priorities identified earlier.
+      - Do NOT repeat resume bullet points verbatim.
+      - Avoid generic phrases.
+      - Professional, confident tone.
+      - 250–350 words.
+
+      EMAIL RULES:
+      - Concise and professional.
+      - Reinforce interest and fit in 3–6 sentences.
+      - Avoid repeating the full cover letter.
+      - Clear subject line aligned with the position.
+
+      The entire output must feel cohesive and strategically aligned.
+
+      Return ONLY a valid JSON.
+      Do not include explanations.
+      Respond in: {language}
+
+      Here is the REQUIRED JSON structure example (structure must be identical, content must be adapted as described):
+      {exampleJson}"
+    ]
 ];
