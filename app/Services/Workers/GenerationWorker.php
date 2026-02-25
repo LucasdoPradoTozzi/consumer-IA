@@ -4,7 +4,6 @@ namespace App\Services\Workers;
 
 use App\Models\JobApplication;
 use App\Models\JobApplicationVersion;
-use App\Models\JobScoring;
 use App\Services\LlmService;
 use App\Services\PromptBuilderService;
 use App\Services\PdfService;
@@ -38,47 +37,28 @@ class GenerationWorker
 
     public function process(JobApplication $jobApplication): void
     {
-        // Buscar versão existente para este scoring
-        $scoring = $jobApplication->scorings()->latest()->first();
-        if (!$scoring) {
-            Log::warning('[GenerationWorker] Nenhum scoring encontrado para o job', [
-                'job_id' => $jobApplication->id,
-            ]);
-            return;
-        }
+        // Get or prepare the version for this job
+        $version = $jobApplication->versions()->latest()->first();
+        $versionNumber = ($jobApplication->versions()->count() + 1);
 
-        $version = $jobApplication->versions()->where('scoring_id', $scoring->id)->first();
-        $versionNumber = $scoring->versions()->count() + 1;
-        Log::info('[GenerationWorker] Versão buscada para scoring', [
-            'scoring_id' => $scoring->id,
-            'version' => $version ? $version->id : null,
-        ]);
-        Log::info('[GenerationWorker] Próximo version_number calculado', [
-            'scoring_id' => $scoring->id,
-            'version_number' => $versionNumber,
+        Log::info('[GenerationWorker] Version state', [
+            'job_id'    => $jobApplication->id,
+            'version'   => $version ? $version->id : null,
+            'version_n' => $versionNumber,
         ]);
 
-        $jobData = $jobApplication->job_data ?? [];
-        Log::info('[GenerationWorker] job_data carregado', [
-            'job_id' => $jobApplication->id,
-            'job_data_keys' => is_array($jobData) ? array_keys($jobData) : [],
-        ]);
+        // Resolved enriched job data directly from job_application columns
+        $jobData = $this->buildJobDataFromApplication($jobApplication);
+        $language = $jobApplication->language;
 
         $candidateProfile = config('candidate.profile')();
-        Log::info('[GenerationWorker] candidateProfile carregado');
 
-        // Buscar enriquecimento da extração ANTES de gerar qualquer coisa
-        $latestExtraction = $jobApplication->extractions()->latest()->first();
-        $extractionData = $latestExtraction ? ($latestExtraction->extraction_data ?? $jobData) : $jobData;
-        $language = $latestExtraction ? ($latestExtraction->extraction_data['language'] ?? null) : null;
-
-        Log::info('[GenerationWorker] Contexto de extração carregado', [
+        Log::info('[GenerationWorker] Context loaded', [
+            'job_id'   => $jobApplication->id,
             'language' => $language,
-            'extraction_id' => $latestExtraction ? $latestExtraction->id : null,
-            'using_enriched_data' => $latestExtraction && $latestExtraction->extraction_data ? true : false,
         ]);
 
-        // If all fields except resume_path are filled, just generate PDF and mark as completed
+        // If all fields except resume_path are filled, just generate PDF
         if (
             $version
             && $version->cover_letter
@@ -90,58 +70,19 @@ class GenerationWorker
             Log::info('[GenerationWorker] All fields present except resume_path, generating PDF only', [
                 'version_id' => $version->id,
             ]);
-            // Try to decode resume_data as JSON, fallback to array
-            $resumeConfig = null;
-            $resumeData = $version->resume_data;
-            if (is_string($resumeData)) {
-                $resumeConfig = json_decode($resumeData, true);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    $resumeConfig = [];
-                }
-            } elseif (is_array($resumeData)) {
-                $resumeConfig = $resumeData;
-            } else {
-                $resumeConfig = [];
-            }
-            $bridge = new \App\Services\CandidateProfileBridge();
-            $language = $jobApplication->extractions()->latest()->first()?->extraction_data['language'] ?? null;
-            $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
-            $mergedConfig = $this->mergeResumeConfig($baseConfig ?? [], $resumeConfig ?? []);
-            $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
-            $resumePdfPath = $this->pdfService->generateCurriculumPdf(
-                $normalizedConfig,
-                $jobApplication->id
-            );
-            $version->resume_path = $resumePdfPath;
-            $version->completed = true;
+            $resumeConfig = is_string($version->resume_data)
+                ? (json_decode($version->resume_data, true) ?? [])
+                : ($version->resume_data ?? []);
+
+            $version->resume_path = $this->generateResumePdf($resumeConfig, $language, $jobApplication->id);
+            $version->completed   = true;
             $version->save();
-            Log::info('[GenerationWorker] PDF generated and version marked as completed', [
-                'version_id' => $version->id,
-                'resume_path' => $resumePdfPath,
-            ]);
+
+            Log::info('[GenerationWorker] PDF generated', ['version_id' => $version->id]);
             return;
         }
 
-        // If we don't have a version yet, create one before proceeding
-        if (!$version) {
-            $version = $jobApplication->versions()->create([
-                'scoring_id' => $scoring->id,
-                'version_number' => $versionNumber,
-                'cover_letter' => null,
-                'email_subject' => null,
-                'email_body' => null,
-                'resume_data' => null,
-                'resume_config' => null,
-                'email_sent' => false,
-                'completed' => false,
-            ]);
-            Log::info('[GenerationWorker] Nova versão criada para scoring', [
-                'scoring_id' => $scoring->id,
-                'version_id' => $version->id,
-            ]);
-        }
-
-        // If all fields including resume_path are filled, just mark as completed if not already
+        // If already fully complete, mark completed if needed
         if (
             $version
             && $version->cover_letter
@@ -153,103 +94,114 @@ class GenerationWorker
             if (!$version->completed) {
                 $version->completed = true;
                 $version->save();
-                Log::info('[GenerationWorker] Versão já estava completa, marcada como completed', [
-                    'version_id' => $version->id,
-                ]);
-            } else {
-                Log::info('[GenerationWorker] Versão já estava completa e completed', [
-                    'version_id' => $version->id,
-                ]);
             }
             return;
         }
 
-        // NOVO FLUXO: Prompt unificado
+        // If no version yet, create one
+        if (!$version) {
+            $version = $jobApplication->versions()->create([
+                'version_number' => $versionNumber,
+                'email_sent'     => false,
+                'completed'      => false,
+            ]);
+            Log::info('[GenerationWorker] Nova version criada', [
+                'version_id' => $version->id,
+            ]);
+        }
+
+        // UNIFIED PROMPT: cover letter + email + resume in one call
         try {
             $startTime = microtime(true);
 
             Log::info('[GenerationWorker] Building unified application prompt');
-            $unifiedPrompt = $this->promptBuilder->buildUnifiedApplicationPrompt($extractionData, $candidateProfile, $language);
-            Log::info('[GenerationWorker] Unified prompt built', [
-                'prompt' => $unifiedPrompt,
-                'prompt_length' => strlen($unifiedPrompt),
-            ]);
-            $llmResponse = $this->llm->generateText($unifiedPrompt);
+            $unifiedPrompt = $this->promptBuilder->buildUnifiedApplicationPrompt($jobData, $candidateProfile, $language);
+            $llmResponse   = $this->llm->generateText($unifiedPrompt);
+
             if (!is_string($llmResponse)) {
                 $llmResponse = json_encode($llmResponse);
             }
+
             $json = $this->parseJsonResponse($llmResponse);
 
-            $coverLetter = $json['cover_letter'] ?? null;
-            if (!empty($coverLetter)) {
-                $version->cover_letter = $coverLetter;
-            }
+            $coverLetter  = $json['cover_letter']  ?? null;
             $emailSubject = $json['email_subject'] ?? null;
-            $emailBody = $json['email_body'] ?? null;
-            if (!empty($emailSubject)) {
-                $version->email_subject = $emailSubject;
-            }
-
-            $emailBody = $json['email_body'] ?? null;
-            if (!empty($emailBody)) {
-                $version->email_body = $emailBody;
-            }
-
+            $emailBody    = $json['email_body']    ?? null;
             $resumeConfig = $json['resume_config'] ?? null;
+
+            if (!empty($coverLetter))  $version->cover_letter  = $coverLetter;
+            if (!empty($emailSubject)) $version->email_subject = $emailSubject;
+            if (!empty($emailBody))    $version->email_body    = $emailBody;
+
             if (!empty($resumeConfig)) {
                 $version->resume_data = json_encode($resumeConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             }
-            $resumeAdjustments = $resumeConfig ? json_encode($resumeConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : null;
 
-            // Gerar PDFs
-            $bridge = new \App\Services\CandidateProfileBridge();
-            $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
-            $mergedConfig = $this->mergeResumeConfig($baseConfig ?? [], $resumeConfig ?? []);
-            $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
-            $resumePdfPath = $this->pdfService->generateCurriculumPdf(
-                $normalizedConfig,
-                $jobApplication->id
-            );
+            // Generate resume PDF
+            $resumePdfPath = $this->generateResumePdf($resumeConfig ?? [], $language, $jobApplication->id);
             $version->resume_path = $resumePdfPath;
 
-            $allFieldsFilled = $coverLetter && $resumeAdjustments && $resumePdfPath && $emailSubject && $emailBody;
-
-            if ($allFieldsFilled) {
+            $allFilled = $coverLetter && $resumeConfig && $resumePdfPath && $emailSubject && $emailBody;
+            if ($allFilled) {
                 $version->completed = true;
             }
             $version->save();
-        } catch (\Throwable $e) {
-            Log::error('[GenerationWorker] Error in processScoring', [
-                'job_id' => $jobApplication->id,
-                'scoring_id' => $scoring->id,
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
+
+            Log::info('[GenerationWorker] Generation completed', [
+                'job_id'    => $jobApplication->id,
+                'version_id'=> $version->id,
+                'duration'  => round(microtime(true) - $startTime, 2),
             ]);
-            // Salva informações geradas mesmo em caso de erro
-            if (!isset($version) || !$version) {
-                $version = $jobApplication->versions()->create([
-                    'scoring_id' => $scoring->id,
-                    'version_number' => $versionNumber,
-                    'cover_letter' => $coverLetter ?? null,
-                    'email_subject' => $emailSubject ?? null,
-                    'email_body' => $emailBody ?? null,
-                    'resume_data' => $resumeAdjustments ?? null,
-                    'resume_config' => $resumeConfig ?? null,
-                    'email_sent' => false,
-                    'completed' => false,
-                ]);
-            } else {
-                if (!empty($coverLetter)) $version->cover_letter = $coverLetter;
-                if (!empty($emailSubject)) $version->email_subject = $emailSubject;
-                if (!empty($emailBody)) $version->email_body = $emailBody;
-                if (!empty($resumeAdjustments)) $version->resume_data = $resumeAdjustments;
-                if (!empty($resumeConfig)) $version->resume_config = $resumeConfig;
-                $version->save();
-            }
+        } catch (\Throwable $e) {
+            Log::error('[GenerationWorker] Error in process', [
+                'job_id' => $jobApplication->id,
+                'error'  => $e->getMessage(),
+                'file'   => $e->getFile(),
+                'line'   => $e->getLine(),
+            ]);
+
+            // Persist whatever was generated before the failure
+            $version->save();
+
             throw $e;
         }
+    }
+
+    /**
+     * Build a merged job data array from the flat columns on job_application
+     * (used by the unified prompt builder).
+     */
+    private function buildJobDataFromApplication(JobApplication $jobApplication): array
+    {
+        $base = $jobApplication->job_data ?? [];
+
+        return array_merge($base, array_filter([
+            'title'            => $jobApplication->extracted_title,
+            'company'          => $jobApplication->extracted_company,
+            'description'      => $jobApplication->extracted_description,
+            'required_skills'  => $jobApplication->required_skills,
+            'location'         => $jobApplication->extracted_location,
+            'salary'           => $jobApplication->extracted_salary,
+            'employment_type'  => $jobApplication->employment_type,
+            'language'         => $jobApplication->language,
+            'company_data'     => $jobApplication->company_data,
+            'extra_information'=> $jobApplication->extra_information,
+        ], fn($v) => $v !== null));
+    }
+
+    /**
+     * Generate the resume PDF using the merged config.
+     */
+    private function generateResumePdf(array $resumeConfig, ?string $language, int $jobId): string
+    {
+        $bridge     = new \App\Services\CandidateProfileBridge();
+        $lang       = ($language === 'en' || $language === 'english') ? 'en' : 'pt';
+        $baseConfig = $bridge->getMappedProfile($lang) ?? [];
+
+        $merged     = $this->mergeResumeConfig($baseConfig, $resumeConfig);
+        $normalized = $this->normalizeResumeConfig($merged);
+
+        return $this->pdfService->generateCurriculumPdf($normalized, $jobId);
     }
 
     /**
@@ -258,101 +210,54 @@ class GenerationWorker
      */
     public function mergeResumeConfig(array $baseConfig, array $llmConfig): array
     {
-        // Strip static fields from LLM output so they can never overwrite database values
         $filteredLlmConfig = array_diff_key($llmConfig, array_flip(self::STATIC_FIELDS));
-
         return array_merge($baseConfig, $filteredLlmConfig);
     }
 
-    // Função de normalização para resume_config
     private function normalizeResumeConfig(array $config): array
     {
         $defaults = [
-            'name' => '',
-            'subtitle' => '',
-            'age' => '',
-            'marital_status' => '',
-            'location' => '',
-            'phone' => '',
-            'phone_link' => '',
-            'email' => '',
-            'github' => '',
-            'github_display' => '',
-            'linkedin' => '',
+            'name'             => '',
+            'subtitle'         => '',
+            'age'              => '',
+            'marital_status'   => '',
+            'location'         => '',
+            'phone'            => '',
+            'phone_link'       => '',
+            'email'            => '',
+            'github'           => '',
+            'github_display'   => '',
+            'linkedin'         => '',
             'linkedin_display' => '',
-            'objective' => '',
-            'skills' => [],
-            'languages' => [],
-            'experience' => [],
-            'education' => [],
-            'projects' => [],
-            'certificates' => [],
-            'personal_info' => [],
-            'summary' => '',
-            'skills_categories' => [],
-            'certifications' => [],
+            'objective'        => '',
+            'skills'           => [],
+            'languages'        => [],
+            'experience'       => [],
+            'education'        => [],
+            'projects'         => [],
+            'certificates'     => [],
+            'personal_info'    => [],
+            'summary'          => '',
+            'skills_categories'=> [],
+            'certifications'   => [],
         ];
-        // Preencher campos faltantes
+
         $normalized = array_merge($defaults, $config);
-        // Corrigir tipos
+
         foreach (['skills', 'languages', 'experience', 'education', 'projects', 'certificates', 'skills_categories', 'certifications'] as $field) {
-            if (!isset($normalized[$field]) || !is_array($normalized[$field])) {
+            if (!is_array($normalized[$field] ?? null)) {
                 $normalized[$field] = [];
             }
         }
+
         return $normalized;
     }
 
-    /**
-     * Extract content from LLM response
-     */
-    private function extractContent(string $response, string $type): string
-    {
-        $trimmed = trim($response);
-
-        // Try to find JSON content first
-        $start = strpos($trimmed, '{');
-        $end = strrpos($trimmed, '}');
-
-        if ($start !== false && $end !== false) {
-            $json = substr($trimmed, $start, $end - $start + 1);
-            $data = json_decode($json, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && isset($data['content'])) {
-                $content = $data['content'];
-                if (is_array($content)) {
-                    $content = implode("\n", $content);
-                }
-                return $content;
-            }
-
-            // Check for specific keys based on type
-            $key = match ($type) {
-                'cover letter' => 'cover_letter',
-                'resume adjustments' => 'adjusted_resume',
-                default => 'content',
-            };
-
-            if (isset($data[$key])) {
-                $content = $data[$key];
-                if (is_array($content)) {
-                    $content = implode("\n", $content);
-                }
-                return $content;
-            }
-        }
-        // Fallback to raw text
-        return $trimmed;
-    }
-
-    /**
-     * Parse JSON response from LLM
-     */
     private function parseJsonResponse(string $response): array
     {
         $trimmed = trim($response);
-        $start = strpos($trimmed, '{');
-        $end = strrpos($trimmed, '}');
+        $start   = strpos($trimmed, '{');
+        $end     = strrpos($trimmed, '}');
 
         if ($start === false || $end === false) {
             throw new \Exception('No JSON found in response: ' . $response);

@@ -88,28 +88,33 @@ class PromptBuilderService
     return $prompt;
   }
   /**
-   * Build extraction prompt
-   * Returns JSON with: { "extracted_info": object }
+   * Build analyze prompt — extracts job information and scores candidate in one LLM call.
+   * Returns JSON with: { "extracted_info": object, "scoring": object }
    *
    * @param array $jobData Job information
+   * @param array $candidateProfile Candidate profile data
    * @return string
    */
-  public function buildExtractionPrompt(array $jobData): string
+  public function buildAnalyzePrompt(array $jobData, array $candidateProfile): string
   {
     $jobTitle = $jobData['title'] ?? 'Unknown';
-    $company = $jobData['company'] ?? 'Unknown';
+    $company  = $jobData['company'] ?? 'Unknown';
     $jobDescription = $jobData['description'] ?? '';
 
-    $promptTemplate = config('prompts.extraction.prompt');
+    $candidateProfileJson = json_encode($candidateProfile, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    $promptTemplate = config('prompts.analyze.prompt');
 
     return str_replace([
       '{jobTitle}',
       '{company}',
-      '{jobDescription}'
+      '{jobDescription}',
+      '{candidateProfile}',
     ], [
       $jobTitle,
       $company,
-      $jobDescription
+      $jobDescription,
+      $candidateProfileJson,
     ], $promptTemplate);
   }
 
@@ -138,133 +143,16 @@ class PromptBuilderService
     return str_replace('{context}', $context, $promptTemplate);
   }
 
+  // buildScorePrompt removed — use buildAnalyzePrompt instead
+
   /**
-   * Build scoring prompt
-   * Returns JSON with: { "score": number (0-100), "justification": string }
-   *
-   * @param array $jobData Job information
-   * @param array $candidateProfile Candidate profile/resume data
-   * @return string
+   * @deprecated — kept as internal stub for backward-compat during migration. Use buildAnalyzePrompt.
    */
-  public function buildScorePrompt(array $jobData, array $candidateProfile): string
+  private function _removedScorePrompt(): never
   {
-    $jobDescription = $jobData['description'] ?? '';
-    $jobTitle = $jobData['title'] ?? 'Unknown';
-    $requiredSkills = $jobData['required_skills'] ?? [];
-    $jobLanguage = $jobData['language'] ?? null;
-
-    $candidateName = $candidateProfile['name'] ?? 'Candidate';
-    $candidateSkills = $candidateProfile['skills'] ?? [];
-    $candidateExperience = $candidateProfile['experience'] ?? '';
-    $candidateSummary = $candidateProfile['summary'] ?? '';
-    $candidateSeniority = $candidateProfile['seniority'] ?? '';
-    $candidateEducation = $candidateProfile['education'] ?? [];
-    $candidateCertifications = $candidateProfile['certifications'] ?? [];
-    $candidateLanguages = $candidateProfile['languages'] ?? [];
-    $candidateLinks = $candidateProfile['links'] ?? [];
-
-    $candidateExperienceText = '';
-    if (is_array($candidateExperience)) {
-      foreach ($candidateExperience as $exp) {
-        if (isset($exp['company'], $exp['position'], $exp['period'])) {
-          $candidateExperienceText .= "- {$exp['position']} at {$exp['company']} ({$exp['period']})\n";
-        }
-      }
-      if (empty($candidateExperienceText)) {
-        $candidateExperienceText = 'Has professional experience';
-      }
-    } else {
-      $candidateExperienceText = $candidateExperience ?: 'No experience specified';
-    }
-
-    // Flatten candidate skills
-    $candidateSkillsFlat = [];
-    if (is_array($candidateSkills)) {
-      foreach ($candidateSkills as $category => $skills) {
-        if (is_array($skills)) {
-          foreach ($skills as $skill) {
-            if (is_array($skill) && isset($skill['name'])) {
-              $candidateSkillsFlat[] = $skill['name'];
-            } elseif (is_string($skill)) {
-              $candidateSkillsFlat[] = $skill;
-            }
-          }
-        }
-      }
-    }
-
-    $skillsText = empty($requiredSkills) ? 'Not specified' : implode(', ', $requiredSkills);
-    $candidateSkillsText = empty($candidateSkillsFlat) ? 'Not specified' : implode(', ', $candidateSkillsFlat);
-
-    // Education
-    $educationText = '';
-    if (is_array($candidateEducation)) {
-      foreach ($candidateEducation as $edu) {
-        if (isset($edu['degree'], $edu['institution'], $edu['period'])) {
-          $educationText .= "- {$edu['degree']} at {$edu['institution']} ({$edu['period']})\n";
-        }
-      }
-    }
-
-    // Certifications
-    $certificationsText = '';
-    if (is_array($candidateCertifications)) {
-      foreach ($candidateCertifications as $cert) {
-        $certificationsText .= "- {$cert}\n";
-      }
-    }
-
-    // Languages
-    $languagesText = '';
-    if (is_array($candidateLanguages)) {
-      foreach ($candidateLanguages as $lang) {
-        if (isset($lang['name'], $lang['level'])) {
-          $languagesText .= "- {$lang['name']}: {$lang['level']}\n";
-        }
-      }
-    }
-
-    // Links
-    $linksText = '';
-    if (is_array($candidateLinks)) {
-      foreach ($candidateLinks as $type => $url) {
-        $linksText .= "- {$type}: {$url}\n";
-      }
-    }
-
-    $languageInstruction = $jobLanguage ? "\nLanguage of the job posting: {$jobLanguage}" : "";
-    $promptTemplate = config('prompts.scoring.prompt');
-
-    return str_replace([
-      '{languageInstruction}',
-      '{jobTitle}',
-      '{skillsText}',
-      '{jobDescription}',
-      '{candidateName}',
-      '{candidateSkillsText}',
-      '{candidateExperienceText}',
-      '{candidateSummary}',
-      '{candidateSeniority}',
-      '{candidateEducation}',
-      '{candidateCertifications}',
-      '{candidateLanguages}',
-      '{candidateLinks}'
-    ], [
-      $languageInstruction,
-      $jobTitle,
-      $skillsText,
-      $jobDescription,
-      $candidateName,
-      $candidateSkillsText,
-      $candidateExperienceText,
-      $candidateSummary,
-      $candidateSeniority,
-      $educationText,
-      $certificationsText,
-      $languagesText,
-      $linksText
-    ], $promptTemplate);
+    throw new \RuntimeException('Method removed');
   }
+
 
   /**
    * Build cover letter generation prompt

@@ -14,17 +14,17 @@ return new class extends Migration
         Schema::create('job_application_versions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('job_application_id')->constrained()->onDelete('cascade');
-            $table->foreignId('scoring_id')->constrained('job_scorings')->onDelete('cascade');
-            $table->integer('version_number');
-            $table->text('cover_letter');
-            $table->string('email_subject');
-            $table->text('email_body');
-            $table->json('resume_data');
-            $table->string('resume_path');
+            $table->integer('version_number')->default(1);
+            $table->text('cover_letter')->nullable();
+            $table->string('email_subject')->nullable();
+            $table->text('email_body')->nullable();
+            $table->json('resume_data')->nullable();
+            $table->json('resume_config')->nullable();
+            $table->string('resume_path')->nullable();
             $table->boolean('email_sent')->default(false);
             $table->boolean('completed')->default(false);
             $table->timestamps();
-            $table->unique(['scoring_id', 'version_number']);
+            $table->unique(['job_application_id', 'version_number']);
         });
     }
 

@@ -20,19 +20,9 @@ class JobApplicationController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Filter by relevance
-        if ($request->filled('relevant')) {
-            $isRelevant = $request->relevant === 'yes';
-            $query->whereHas('scorings', function ($q) use ($isRelevant) {
-                $q->where('is_relevant', $isRelevant);
-            });
-        }
-
         // Filter by score
         if ($request->filled('min_score')) {
-            $query->whereHas('scorings', function ($q) use ($request) {
-                $q->where('score', '>=', $request->min_score);
-            });
+            $query->where('match_score', '>=', (int) $request->min_score);
         }
 
         // Search
@@ -56,7 +46,7 @@ class JobApplicationController extends Controller
             'completed' => JobApplication::where('status', 'completed')->count(),
             'rejected' => JobApplication::where('status', 'rejected')->count(),
             'failed' => JobApplication::where('status', 'failed')->count(),
-            'avg_score' => \App\Models\JobScoring::avg('scoring_score'),
+            'avg_score' => JobApplication::whereNotNull('match_score')->avg('match_score'),
         ];
 
         return view('job-applications.index', compact('applications', 'stats'));

@@ -8,14 +8,13 @@ class RunPipeline extends Command
 {
     protected $signature = 'app:run-pipeline {--stop-on-failure : Stop the pipeline if any step fails}';
 
-    protected $description = 'Run the full application pipeline sequentially (extract → score → generate → email) with a global lock to prevent concurrent executions.';
+    protected $description = 'Run the full application pipeline sequentially (analyze → generate → email) with a global lock to prevent concurrent executions.';
 
     /**
      * The pipeline steps in execution order.
      */
     private const STEPS = [
-        'app:extract-pending-applications',
-        'app:score-pending-extractions',
+        'app:analyze-pending-applications',
         'app:generate-pending-applications',
         'app:send-pending-application-emails',
     ];
