@@ -12,6 +12,24 @@ use Illuminate\Support\Facades\Log;
 
 class GenerationWorker
 {
+    /**
+     * Fields that must always come from the database (CandidateProfileBridge),
+     * never from LLM output. Even if the LLM returns these, they are ignored.
+     */
+    private const STATIC_FIELDS = [
+        'name',
+        'age',
+        'marital_status',
+        'location',
+        'phone_link',
+        'phone',
+        'email',
+        'github',
+        'github_display',
+        'linkedin',
+        'linkedin_display',
+    ];
+
     public function __construct(
         private readonly LlmService $llm,
         private readonly PromptBuilderService $promptBuilder,
@@ -88,7 +106,7 @@ class GenerationWorker
             $bridge = new \App\Services\CandidateProfileBridge();
             $language = $jobApplication->extractions()->latest()->first()?->extraction_data['language'] ?? null;
             $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
-            $mergedConfig = array_merge($baseConfig ?? [], $resumeConfig ?? []);
+            $mergedConfig = $this->mergeResumeConfig($baseConfig ?? [], $resumeConfig ?? []);
             $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
             $resumePdfPath = $this->pdfService->generateCurriculumPdf(
                 $normalizedConfig,
@@ -186,7 +204,7 @@ class GenerationWorker
             // Gerar PDFs
             $bridge = new \App\Services\CandidateProfileBridge();
             $baseConfig = $bridge->getMappedProfile(($language === 'en' || $language === 'english') ? 'en' : 'pt');
-            $mergedConfig = array_merge($baseConfig ?? [], $resumeConfig ?? []);
+            $mergedConfig = $this->mergeResumeConfig($baseConfig ?? [], $resumeConfig ?? []);
             $normalizedConfig = $this->normalizeResumeConfig($mergedConfig);
             $resumePdfPath = $this->pdfService->generateCurriculumPdf(
                 $normalizedConfig,
@@ -232,6 +250,18 @@ class GenerationWorker
             }
             throw $e;
         }
+    }
+
+    /**
+     * Merge base config (from database) with LLM-generated resume config,
+     * ensuring that static/personal fields are never overwritten by LLM output.
+     */
+    public function mergeResumeConfig(array $baseConfig, array $llmConfig): array
+    {
+        // Strip static fields from LLM output so they can never overwrite database values
+        $filteredLlmConfig = array_diff_key($llmConfig, array_flip(self::STATIC_FIELDS));
+
+        return array_merge($baseConfig, $filteredLlmConfig);
     }
 
     // Função de normalização para resume_config

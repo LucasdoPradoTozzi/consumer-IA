@@ -2,25 +2,32 @@
   "name": "Seu Nome Completo",
   "email": "seu.email@example.com",
   "phone": "+55 11 99999-9999",
-
   "summary": "Breve descrição sobre você e sua experiência profissional.",
+  "seniority": "pleno",
+  "linkedin": "https://linkedin.com/in/seu-usuario",
+  "github": "https://github.com/seu-usuario",
+  "remote": true,
+  "hybrid": true,
+  "onsite": false,
+  "willing_to_relocate": false,
+  "availability": "immediate",
 
   "skills": {
     "backend": [
-      { "name": "PHP", "level": "senior" },
-      { "name": "Laravel", "level": "senior" }
+      { "name": "PHP", "experience_years": 5 },
+      { "name": "Laravel", "experience_years": 4 }
     ],
     "frontend": [
-      { "name": "Vue.js", "level": "pleno" }
+      { "name": "Vue.js", "experience_years": 2 }
     ],
     "databases": [
-      { "name": "PostgreSQL", "level": "senior" }
+      { "name": "PostgreSQL", "experience_years": 4 }
     ],
     "devops": [
-      { "name": "Docker", "level": "pleno" }
+      { "name": "Docker", "experience_years": 2 }
     ],
     "tools": [
-      { "name": "RabbitMQ", "level": "pleno" }
+      { "name": "RabbitMQ", "experience_years": 2 }
     ]
   },
 
@@ -35,7 +42,7 @@
         "Conquista 1",
         "Conquista 2"
       ],
-      "technologies": ["PHP", "Laravel", "Docker"]
+      "skills": ["PHP", "Laravel", "Docker"]
     }
   ],
 
@@ -48,30 +55,19 @@
     }
   ],
 
-  "certifications": [],
+  "certifications": [
+    {
+      "name": "Certificação Exemplo",
+      "institution": "Instituição",
+      "year": 2022
+    }
+  ],
 
   "languages": [
     { "name": "Português", "level": "nativo" },
     { "name": "Inglês", "level": "avançado" }
   ],
 
-  "links": {
-    "github": "https://github.com/seu-usuario",
-    "linkedin": "https://linkedin.com/in/seu-usuario",
-    "portfolio": "https://seu-portfolio.com"
-  },
-
-  "preferences": {
-    "remote": true,
-    "hybrid": true,
-    "onsite": false,
-    "min_salary": null,
-    "desired_salary": null,
-    "locations": ["Remote", "São Paulo"],
-    "contract_types": ["CLT", "PJ"],
-    "availability": "immediate",
-    "willing_to_relocate": false
-  },
-
-  "seniority": "pleno"
+  "locations": ["Remote", "São Paulo"],
+  "contract_types": ["CLT", "PJ"]
 }

@@ -96,10 +96,20 @@ class ScoringWorker
     private function parseJsonResponse(string $response, string $jobId): array
     {
         $trimmed = trim($response);
+
+        // Strip markdown code fences if present (```json ... ```)
+        $trimmed = preg_replace('/^```(?:json)?\s*/i', '', $trimmed);
+        $trimmed = preg_replace('/\s*```\s*$/', '', $trimmed);
+        $trimmed = trim($trimmed);
+
         $start = strpos($trimmed, '{');
         $end = strrpos($trimmed, '}');
 
         if ($start === false || $end === false) {
+            Log::error('[ScoringWorker] No JSON found in LLM response', [
+                'job_id' => $jobId,
+                'response_preview' => mb_substr($response, 0, 500),
+            ]);
             throw new \Exception('No JSON found in response');
         }
 
@@ -107,6 +117,12 @@ class ScoringWorker
         $data = json_decode($json, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
+            Log::error('[ScoringWorker] JSON parse failed', [
+                'job_id' => $jobId,
+                'json_error' => json_last_error_msg(),
+                'extracted_json_preview' => mb_substr($json, 0, 1000),
+                'raw_response_preview' => mb_substr($response, 0, 500),
+            ]);
             throw new \Exception('Invalid JSON: ' . json_last_error_msg());
         }
 
