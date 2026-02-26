@@ -1,6 +1,6 @@
 # Consumer-IA — Documentação Completa do Projeto
 
-> **Última atualização**: 2026-02-17
+> **Última atualização**: 2026-02-26
 >
 > Aplicação Laravel 12 para processamento automatizado de candidaturas a vagas de emprego,
 > utilizando RabbitMQ (intake), Ollama LLM/OCR, e batch commands (processamento).
@@ -306,6 +306,16 @@ Tabela principal para armazenar os dados do candidato (antigo `candidate-profile
 Tabelas de apoio para estrutura relacional do candidato (1:N com `candidate_profiles`). 
 *Nota: A tabela `candidate_skills` armazena `experience_years` (inteiro) em vez de níveis em texto.*
 
+### Interface de Edição de Perfil (`resources/views/candidate-profile/edit.blade.php`)
+
+Formulário Alpine.js para gerenciar todos os dados do perfil com as seguintes características de UX:
+
+- **Skills como Tags**: Habilidades já adicionadas são exibidas como tags coloridas (`PHP — 3 yrs ×`) em vez de selects editáveis. O dropdown de adição filtra automaticamente as habilidades já selecionadas.
+- **Botões de Adição no Final**: Todos os botões "+ Add X" ficam na parte inferior de cada seção (Skills, Experience, Education, Language, Certification), não no cabeçalho.
+- **Scroll Automático**: Ao clicar em "+ Add X", a página rola automaticamente até o novo campo criado.
+- **Achievements como Text Inputs**: Conquistas de experiência usam `<input type="text">` simples e bem estilizados — sem textareas nem selects.
+- **Botão Delete de Experience**: O botão de remoção de experiência fica no **rodapé direito** do card, longe dos campos de nome, para evitar cliques acidentais.
+
 ---
 
 ## Services
@@ -507,15 +517,12 @@ Configuração do servidor Ollama. Recém-atualizado para suportar **Perfies de 
 Configuração legada e serviço de acesso seguro aos dados do perfil do candidato.
 Historicamente lia de `candidate-profile.json`, mas agora age como um *Facade* em cima do `CandidateProfileService`, buscando os dados do banco de dados relacional e abstraindo a estrutura JSON esperada pelos LLMs.
 
-### `config/prompts.php` (Novo)
+### `config/prompts.php`
 
-Centraliza todos os templates de prompt do sistema:
+Centraliza os templates de prompt do sistema:
 
-- `extraction`: Extração de dados da vaga
-- `scoring`: Avaliação de compatibilidade
-- `cover_letter`: Geração de carta de apresentação
-- `resume_adjustment`: Adaptação de currículo
-- `email`: Geração de corpo de email
+- `analyze`: Extração de dados da vaga + scoring de compatibilidade (em uma única chamada LLM)
+- `unified_application`: Geração de cover letter, email e currículo adaptado (em uma única chamada LLM)
 
 ### `config/curriculum.php` / `config/curriculum_en.php`
 

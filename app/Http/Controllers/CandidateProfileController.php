@@ -164,6 +164,28 @@ class CandidateProfileController extends Controller
             }
         }
 
+        // Sync Locations
+        if ($request->filled('locations_json')) {
+            $locationsData = json_decode($request->input('locations_json'), true) ?? [];
+            $profile->locations()->delete();
+            foreach ($locationsData as $loc) {
+                if (!empty($loc)) {
+                    $profile->locations()->create(['location' => $loc]);
+                }
+            }
+        }
+
+        // Sync Contract Types
+        if ($request->filled('contract_types_json')) {
+            $contractTypesData = json_decode($request->input('contract_types_json'), true) ?? [];
+            $profile->contractTypes()->delete();
+            foreach ($contractTypesData as $type) {
+                if (!empty($type)) {
+                    $profile->contractTypes()->create(['type' => $type]);
+                }
+            }
+        }
+
         return redirect()->route('candidate-profile.index')->with('success', 'Profile updated successfully.');
     }
 }
