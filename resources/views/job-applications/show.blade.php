@@ -41,9 +41,9 @@
                             </span>
                         </p>
                         @endif
-                        @if($jobApplication->is_relevant !== null)
+                        @if(isset($jobApplication->scoring_data['is_relevant']))
                         <p><strong>Relevante:</strong>
-                            @if($jobApplication->is_relevant)
+                            @if($jobApplication->scoring_data['is_relevant'])
                             <span class="badge bg-success">Sim</span>
                             @else
                             <span class="badge bg-danger">Não</span>
@@ -113,31 +113,17 @@
             </div>
         </div>
 
-        <!-- Classification -->
-        @if($jobApplication->classification_reason)
+        <!-- Evaluation Data -->
+        @if(!empty($jobApplication->scoring_data))
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-tags"></i> Classificação</h5>
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Dados de Avaliação</h5>
             </div>
             <div class="card-body">
-                <p><strong>Razão:</strong></p>
-                <p>{{ $jobApplication->classification_reason }}</p>
+                <pre class="bg-light p-3 rounded mb-0" style="font-size: 0.85rem; overflow-x: auto; white-space: pre-wrap; font-family: monospace;">@json($jobApplication->scoring_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)</pre>
             </div>
         </div>
         @endif
-
-        <!-- Score Justification -->
-        @if($jobApplication->score_justification)
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Justificativa do Score</h5>
-            </div>
-            <div class="card-body">
-                <p>{{ $jobApplication->score_justification }}</p>
-            </div>
-        </div>
-        @endif
-
         <!-- Cover Letter -->
         @if($jobApplication->cover_letter)
         <div class="card mb-4">
@@ -221,37 +207,6 @@
                 </div>
             </div>
 
-            <!-- Extraction Versions Section -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-search"></i> Versões de Extração de Dados</h5>
-                </div>
-                <div class="card-body">
-                    <ul>
-                        @foreach($jobApplication->extractions as $extraction)
-                            <li>
-                                <strong>Versão #{{ $extraction->version_number }}</strong> - Criado em: {{ $extraction->created_at->format('d/m/Y H:i:s') }}
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Scoring Versions Section -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Versões de Score</h5>
-                </div>
-                <div class="card-body">
-                    <ul>
-                        @foreach($jobApplication->scorings as $scoring)
-                            <li>
-                                <strong>Score:</strong> {{ $scoring->scoring_score }} - Criado em: {{ $scoring->created_at->format('d/m/Y H:i:s') }}
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            </div>
 
                 @if(!$jobApplication->isCompleted())
                 <form action="{{ route('job-applications.mark-completed', $jobApplication) }}" method="POST" class="mb-2">
