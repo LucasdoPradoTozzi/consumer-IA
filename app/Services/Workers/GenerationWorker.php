@@ -115,7 +115,8 @@ class GenerationWorker
             $startTime = microtime(true);
 
             Log::info('[GenerationWorker] Building unified application prompt');
-            $unifiedPrompt = $this->promptBuilder->buildUnifiedApplicationPrompt($jobData, $candidateProfile, $language);
+            $scoringData   = is_array($jobApplication->scoring_data) ? $jobApplication->scoring_data : (json_decode($jobApplication->scoring_data ?? '[]', true) ?? []);
+            $unifiedPrompt = $this->promptBuilder->buildUnifiedApplicationPrompt($jobData, $candidateProfile, $language, $scoringData ?: null);
             $llmResponse   = $this->llm->generateText($unifiedPrompt);
 
             if (!is_string($llmResponse)) {

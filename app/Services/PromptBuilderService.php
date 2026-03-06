@@ -43,9 +43,10 @@ class PromptBuilderService
    * @param array $jobData
    * @param array $candidateProfile
    * @param string|null $language
+   * @param array|null $scoringData  Scoring context from the analyze step (matched_skills, missing_skills, strengths, gaps, justification)
    * @return string
    */
-  public function buildUnifiedApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null): string
+  public function buildUnifiedApplicationPrompt(array $jobData, array $candidateProfile, ?string $language = null, ?array $scoringData = null): string
   {
     $examplePt = config('curriculum.default_candidate');
     $exampleEn = config('curriculum_en.default_candidate');
@@ -66,16 +67,30 @@ class PromptBuilderService
     $template = $lang === 'en' ? 'en' : 'default';
     $languageLabel = $lang === 'en' ? 'Inglês' : 'Português';
 
+    // Build scoring context for strategic guidance in generation
+    $scoringContext = $scoringData
+      ? json_encode([
+          'score'          => $scoringData['score']          ?? null,
+          'matched_skills' => $scoringData['matched_skills'] ?? [],
+          'missing_skills' => $scoringData['missing_skills'] ?? [],
+          'strengths'      => $scoringData['strengths']      ?? [],
+          'gaps'           => $scoringData['gaps']           ?? [],
+          'justification'  => $scoringData['justification']  ?? '',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+      : 'No scoring context available.';
+
     $promptTemplate = config('prompts.unified_application.prompt');
     $prompt = str_replace([
       '{jobData}',
       '{candidateProfile}',
+      '{scoringContext}',
       '{template}',
       '{language}',
       '{exampleJson}'
     ], [
       $jobDataJson,
       $candidateProfileJson,
+      $scoringContext,
       $template,
       $languageLabel,
       $exampleJson
